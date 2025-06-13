@@ -7,6 +7,9 @@ def concentration(n, r0, s):
 def diffusion_coefficient(tauD, r0):
     return r0**2 / (4 * tauD)
 
+def G0(n,T):
+    return (1-T)/n
+
 def twod(tau, tauD):
     """Unnormalized 2D diffusion model"""
     return 1/(1 + tau/tauD)
@@ -54,9 +57,24 @@ def CF_2d_2c(taus, n, tauD1, tauD2, f1, offset):
     G = offset + (f1 * UDC1 + (1 - f1) * UDC2) / n
     return G
 
+def CF_2d_3c(taus, n, tauD1, tauD2, tauD3, f1,f2, offset):
+    """2D diffusion model with a gaussian confocal volume."""
+    UDC1 = twod(taus, tauD1)
+    UDC2 = twod(taus, tauD2)
+    UDC3 = twod(taus, tauD3)
+    G = offset + (f1 * UDC1 + f2 * UDC2+ (1-f1-f2) * UDC3) / n
+    return G
+
 def CF_2d_1T(taus, n, tauD, tautr, T, offset):
     """2D diffusion model with a gaussian confocal volume."""
     UDC = twod(taus, tauD)
+    UTC = trip(taus, tautr, T)
+    G = offset + UDC * UTC / n
+    return G
+
+def CF_2da_1T(taus, n, tauD, a1, tautr, T, offset):
+    """2D diffusion model with a gaussian confocal volume."""
+    UDC = twoda(taus, tauD, a1)
     UTC = trip(taus, tautr, T)
     G = offset + UDC * UTC / n
     return G

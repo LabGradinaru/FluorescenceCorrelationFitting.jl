@@ -30,11 +30,13 @@ def model_plot(lag_times, data, fit,
                label = "", color = 'b',
                xlabel=STANDARD_XLABEL, 
                ylabel=STANDARD_YLABEL):
+    
+    
     fig = plt.figure(1)
     frame1 = fig.add_axes((.1,.3,.8,.6))
 
-    plt.plot(lag_times, data,label=label, color=color)
-    plt.plot(lag_times, fit.best_fit, '--', label = label + " Fit", color=lighten_color(color,1.3))
+    plt.scatter(lag_times, data,label=label,facecolors = 'none',color=color)
+    plt.plot(lag_times, fit.best_fit,  label = label + " Fit", color=lighten_color(color,1.3))
     plt.ylabel(ylabel)
     plt.semilogx()
     plt.legend()
@@ -44,6 +46,37 @@ def model_plot(lag_times, data, fit,
 
     frame2 = fig.add_axes((.1,.1,.8,.175))
     plt.plot(lag_times, fit.residual, color=lighten_color(color,1.3))
+    plt.ylabel('Residuals')
+    plt.xlabel(xlabel)
+    plt.semilogx()
+    plt.grid()
+    plt.show()
+
+def cc_model_plot(lag_times, data1,fit1,data2,fit2,data3,fit3,OVCF_g,OVCF_r, 
+               label = "", color = 'b',
+               xlabel=STANDARD_XLABEL, 
+               ylabel=STANDARD_YLABEL):
+    
+    fig = plt.figure(1)
+    frame1 = fig.add_axes((.1,.3,.8,.6))
+
+    plt.scatter(lag_times, data1/OVCF_g,label="CF1",facecolors = 'none',color="#8DBF2E")
+    plt.plot(lag_times, fit1.best_fit/OVCF_g,  label = "CF1 Fit", color=lighten_color("#8DBF2E"))
+    plt.scatter(lag_times, data2/OVCF_r,label="CF2",facecolors = 'none',color="#DC4633")
+    plt.plot(lag_times, fit2.best_fit/OVCF_r,  label = "CF2 Fit", color=lighten_color("#DC4633"))
+    plt.scatter(lag_times, data3,label="CF3",facecolors = 'none',color="#36454F")
+    plt.plot(lag_times, fit3.best_fit,  label = "CF3 Fit", color=lighten_color("#36454F"))
+    plt.ylabel(ylabel)
+    plt.semilogx()
+    plt.legend()
+
+    frame1.set_xticklabels([])
+    plt.grid()
+
+    frame2 = fig.add_axes((.1,.1,.8,.175))
+    plt.plot(lag_times, fit1.residual, color=lighten_color("#8DBF2E"))
+    plt.plot(lag_times, fit2.residual, color=lighten_color("#DC4633"))
+    plt.plot(lag_times, fit3.residual, color=lighten_color("#36454F"))
     plt.ylabel('Residuals')
     plt.xlabel(xlabel)
     plt.semilogx()
