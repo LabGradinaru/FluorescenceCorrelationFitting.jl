@@ -1,9 +1,16 @@
 """
-    τD_from_D(D, w0)
-
+    τD(D, w0)
 Convert diffusion coefficient `D` and lateral waist `w0` to the lateral diffusion time τD.
 """
-@inline τD_from_D(D::Real, w0::Real) = w0^2 / (4D)
+@inline τD(D::Real, w0::Real) = w0^2 / (4D)
+@inline diffusivity(τD::Real, w0::Real) = w0^2 / (4τD)
+
+
+"""
+    Veff(w0, z0)
+Calculate the effective volume from the measured FCS parameters.
+"""
+@inline Veff(w0::Real, z0::Real) = π^(3/2) * w0^2 * z0
 
 # clamp into (ε, 1-ε) to keep fractions valid without NaNs/Infs in fits
 @inline function clamp01(x::T) where T
@@ -132,6 +139,8 @@ The parameters vector `p` should be organized as
 
 `scales` converts from the normalized units of the input to match the units of time.
 `ics` dictates the number of independent components for each dynamic contributor.
+`diffusivity` can be provided as a fixed parameter (e.g., for callibration), in which case
+`p[1]` is interpretted as the 1/e radius w0.
 
 # Examples
 `fcs_2d(times, [1e-4, 1.0, 0.0, 1e-6, 1e-7, 0.1, 0.1]; ics=[1,1])`
@@ -142,7 +151,8 @@ would attempt to fit the the regular diffusion model with initial parameters `τ
 """
 function fcs_2d(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real}; 
                 scales::Union{Nothing, AbstractVector}=nothing, 
-                ics::Union{Nothing, AbstractVector{Int}}=nothing)
+                ics::Union{Nothing, AbstractVector{Int}}=nothing,
+                diffusivity::Union{Nothing,Real}=nothing)
     L = length(p)
     isnothing(scales) && (scales = ones(L))
     L == length(scales) || throw(ArgumentError("Scaling and parameter vector must be of the same length."))
@@ -154,7 +164,7 @@ function fcs_2d(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real}
     sum(ics) == m || throw(ArgumentError("The number of dynamic components must be consistent among the parameters `p` and `ics`."))
 
     dyn = (m == 0) ? 1.0 : _dynamics_factor(t, @view(scaled_p[4:3+m]), @view(scaled_p[4+m:3+2m]), ics)
-    udc = udc_2d(t, scaled_p[1])
+    udc = isnothing(diffusivity) ? udc_2d(t, scaled_p[1]) : udc_2d(t, τD(diffusivity, scaled_p[1]))
     if t isa AbstractVector
         @. scaled_p[3] + scaled_p[2] * udc * dyn
     else
@@ -223,7 +233,8 @@ The parameters vector `p` should be organized as
 """
 function fcs_3d(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real};
                 scales::Union{Nothing, AbstractVector}=nothing,
-                ics::Union{Nothing, AbstractVector{Int}}=nothing)
+                ics::Union{Nothing, AbstractVector{Int}}=nothing,
+                diffusivity::Union{Nothing,Real}=nothing)
     L = length(p)
     isnothing(scales) && (scales = ones(L))
     L ≥ 4 || throw(ArgumentError("need at least 4 params: τD, g0, offset, s"))
@@ -235,7 +246,7 @@ function fcs_3d(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real}
     sum(ics) == m || throw(ArgumentError("The number of dynamic components must be consistent among the parameters `p` and `ics`."))
 
     dyn = (m == 0) ? 1.0 : _dynamics_factor(t, @view(scaled_p[5:4+m]), @view(scaled_p[5+m:4+2m]), ics)
-    udc = udc_3d(t, scaled_p[1], scaled_p[4])
+    udc = isnothing(diffusivity) ? udc_3d(t, scaled_p[1], scaled_p[4]) : udc_3d(t, τD(diffusivity, scaled_p[1]), scaled_p[4])
     if t isa AbstractVector
         @. scaled_p[3] + scaled_p[2] * udc * dyn
     else
