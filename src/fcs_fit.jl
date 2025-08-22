@@ -134,12 +134,12 @@ end
 """
     _aicc(resid::AbstractVector, k::Int)
 
-Low sample corrected Akaike information criterion estimate.
+Low sample corrected Akaike information criterion estimate on assumed Gaussian residuals.
 """
 function _aicc(resid::AbstractVector, k::Int)
     N = length(resid)
-    σ2 = sum(resid.^2)
-    return 2k + N * log(σ2 / N) + (2k^2 + 2k) / (N - k - 1)
+    σ2 = sum(abs2, resid) / N
+    return 2k + N * log(σ2) + (2k^2 + 2k) / (N - k - 1)
 end
 
 """
@@ -149,19 +149,33 @@ end
 Fit FCS data with `model` using `fcs_fit` and generate a plot of the fit and the residuals. 
 """
 function fcs_plot(model::Function, lag_times::AbstractVector, data::AbstractVector, θ0::AbstractVector; 
-                 fontsize::Int = 20, color1=:deepskyblue3, color2=:orangered2, color3=:steelblue4, kwargs...)
+                  fontsize::Int = 20, color1=:deepskyblue3, color2=:orangered2, color3=:steelblue4, kwargs...)
     fit, scales = fcs_fit(model, lag_times, data, θ0; kwargs...)
 
-    fig = Figure(size=(700,600), fontsize=fontsize)
+    fig = Figure(size=(700, 600), fontsize=fontsize)
 
-    Axis(fig[1,1], xticklabelsvisible = false, ylabel = L"Correlation, $G(\tau)$", xscale=log10, height=400, width=600)
-    scatter!(lag_times, data, markersize=10, color = color1, strokewidth = 1, strokecolor=:black, alpha=0.7)
-    parameters = fit.param .* scales
-    param_errors = standard_errors(fit) .* scales
-    lines!(lag_times, fcs_3d(lag_times, parameters), linewidth=3, color=color2, alpha=0.9)
+    # Top panel (x ticks hidden). y-ticks rendered with LaTeX.
+    Axis(fig[1,1];
+         xticklabelsvisible = false,
+         ylabel = L"\mathrm{Correlation} \; G(\tau)",
+         ytickformat = ys -> [L"%$(round(ys[i],sigdigits=2))" for i in eachindex(ys)],
+         xscale = log10, height = 400, width = 600)
 
-    Axis(fig[2,1], xlabel = L"Lag time, $\tau$ [s]", ylabel = L"$\text{Residuals}$", xscale=log10, height=100, width=600)
-    scatterlines!(lag_times, fit.resid, color=color3, markersize=5, strokewidth=1, alpha=0.7)
+    scatter!(lag_times, data; markersize=10, color=color1, strokewidth=1, strokecolor=:black, alpha=0.7)
 
-    fig, parameters, param_errors, _aicc(fit.resid, length(θ0))
+    parameters = fit.param .* scales          # physical units
+    param_errors = stderror(fit) .* scales      # LsqFit.stderror
+    lines!(lag_times, model(lag_times, parameters); linewidth=3, color=color2, alpha=0.9)
+
+    # Bottom panel: residuals, with LaTeX x/y tick labels.
+    Axis(fig[2,1];
+         xlabel = L"\mathrm{Logarithmic\ lag\ time}\; \log_{10}{\tau}",
+         ylabel = L"\mathrm{Residuals}",
+         xscale = log10, height = 100, width = 600,
+         xtickformat = xs -> [L"%$(log10(xs[i]))" for i in eachindex(xs)],
+         ytickformat = ys -> [L"%$(ys[i])" for i in eachindex(ys)])
+
+    scatterlines!(lag_times, fit.resid; color=color3, markersize=5, strokewidth=1, alpha=0.7)
+
+    return fig, parameters, param_errors, _aicc(fit.resid, length(θ0))
 end
