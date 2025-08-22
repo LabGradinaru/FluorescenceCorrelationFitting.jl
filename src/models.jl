@@ -23,29 +23,32 @@ function _normalize_weights(ws::AbstractVector)
     s > 0 ? (w ./ s) : fill(inv(length(w)), length(w))
 end
 
-# multiplicative blinking/dynamics factor ∏_j [1 + K_j/(1-K_j) * exp(-t/τ_j)]
+# multiplicative blinking/dynamics factor ∏_j [1 + K_j * exp(-t/τ_j)]
 # returns 1 if no (τ,K) provided 
-function _dynamics_factor(t, τs::AbstractVector, Ks::AbstractVector)
+function _dynamics_factor(t, τs::AbstractVector, Ks::AbstractVector, ics::AbstractVector{Int})
     length(τs) == length(Ks) || throw(ArgumentError("τs and Ks must have same length"))
+    sum(ics) == length(τs) || throw(ArgumentError("The number of components must match τs and Ks")) 
     if isempty(τs)
         return t isa AbstractVector ? ones(promote_type(eltype(t), Float64), length(t)) : one(promote_type(typeof(t), Float64))
     end
     if t isa AbstractVector
         T = promote_type(eltype(t), eltype(τs), eltype(Ks))
         out = ones(T, length(t))
-        @inbounds for i in eachindex(τs)
-            K = clamp01(T(Ks[i]))
-            τ = T(τs[i])
-            @. out *= (one(T) + K/(one(T)-K) * exp(-t/τ))
+        idx = 1
+        @inbounds for i in eachindex(ics)
+            nic = ics[i]
+            end_idx = idx+nic-1
+            @. out *= (one(T) + sum(Ks[idx:end_idx] * exp(- t/τs[idx:end_idx])))
         end
         return out
     else
         T = promote_type(typeof(t), eltype(τs), eltype(Ks))
         out = one(T)
-        @inbounds for i in eachindex(τs)
-            K = clamp01(T(Ks[i]))
-            τ = T(τs[i])
-            out *= (one(T) + K/(one(T)-K) * exp(-T(t)/τ))
+        idx = 1
+        @inbounds for i in eachindex(ics)
+            nic = ics[i]
+            end_idx = idx+nic-1
+            out *= (one(T) + sum(Ks[idx:end_idx] * exp(- t/τs[idx:end_idx])))
         end
         return out
     end
@@ -116,7 +119,7 @@ end
 end
 
 """
-    fcs_2d(t, p)
+    fcs_2d(t, p; scales, ics)
 
 Single-component 2D diffusion with optional multiplicative dynamics (triplet/blinking).
 The parameters vector `p` should be organized as
@@ -128,16 +131,29 @@ The parameters vector `p` should be organized as
 *   `p[m+1:N]` → K_dyn; the fraction corresponding of the population corresponding to the dynamic lifetime
 
 `scales` converts from the normalized units of the input to match the units of time.
+`ics` dictates the number of independent components for each dynamic contributor.
+
+# Examples
+`fcs_2d(times, [1e-4, 1.0, 0.0, 1e-6, 1e-7, 0.1, 0.1]; ics=[1,1])`
+
+would attempt to fit the the regular diffusion model with initial parameters `τD` = 100 μs,
+`g0` = 1.0, `offset` = 0.0 and two independent dynamic components, multiplying the diffusion model as
+`(1 + T * exp(- t/ τ1)) * (1 + K * exp(- t/ τ2))`
 """
 function fcs_2d(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real}; 
-                scales::Union{Nothing, AbstractVector}=nothing)
+                scales::Union{Nothing, AbstractVector}=nothing, 
+                ics::Union{Nothing, AbstractVector{Int}}=nothing)
     L = length(p)
     isnothing(scales) && (scales = ones(L))
     L == length(scales) || throw(ArgumentError("Scaling and parameter vector must be of the same length."))
     L ≥ 3 || throw(ArgumentError("need at least 3 params: τD, g0, offset"))
     scaled_p = scales .* p
+
     m = _ndyn_from_len(L - 3)
-    dyn = (m == 0) ? 1.0 : _dynamics_factor(t, @view(scaled_p[4:3+m]), @view(scaled_p[4+m:3+2m]))
+    isnothing(ics) && (ics = ones(Int, m))
+    sum(ics) == m || throw(ArgumentError("The number of dynamic components must be consistent among the parameters `p` and `ics`."))
+
+    dyn = (m == 0) ? 1.0 : _dynamics_factor(t, @view(scaled_p[4:3+m]), @view(scaled_p[4+m:3+2m]), ics)
     udc = udc_2d(t, scaled_p[1])
     if t isa AbstractVector
         @. scaled_p[3] + scaled_p[2] * udc * dyn
@@ -160,7 +176,8 @@ The parameters vector `p` should be organized as
 *   `p[2n+3+m:end]` → K_dyn; the fraction corresponding of the population corresponding to the dynamic lifetime
 """
 function fcs_2d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real};
-                      n_diff::Integer=1, scales::Union{Nothing,AbstractVector}=nothing)
+                      n_diff::Integer=1, scales::Union{Nothing,AbstractVector}=nothing,
+                      ics::Union{Nothing, AbstractVector{Int}}=nothing)
     n_diff ≥ 1 || throw(ArgumentError("n_diff must be ≥ 1"))
     L = length(p)
     isnothing(scales) && (scales = ones(L))
@@ -172,6 +189,8 @@ function fcs_2d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<
 
     scaled_p = scales .* p
     m = _ndyn_from_len(L - base)
+    isnothing(ics) && (ics = ones(Int, m))
+    sum(ics) == m || throw(ArgumentError("The number of dynamic components must be consistent among the parameters `p` and `ics`."))
 
     τDs = @view scaled_p[1:n]
     wts = @view scaled_p[n+1:2n]
@@ -180,7 +199,7 @@ function fcs_2d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<
     τdyn = m == 0 ? Float64[] : collect(@view scaled_p[base+1 : base+m])
     Kdyn = m == 0 ? Float64[] : collect(@view scaled_p[base+m+1 : base+2m])
 
-    dyn = (m == 0) ? 1.0 : _dynamics_factor(t, τdyn, Kdyn)
+    dyn = (m == 0) ? 1.0 : _dynamics_factor(t, τdyn, Kdyn, ics)
     mix = _mdiff(t, τDs, wts, (tt,τ)->udc_2d(tt,τ))
     if t isa AbstractVector
         @. offset + g0 * mix * dyn
@@ -203,14 +222,19 @@ The parameters vector `p` should be organized as
 *   `p[m+1:N]` → K_dyn; the fraction corresponding of the population corresponding to the dynamic lifetime
 """
 function fcs_3d(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real};
-                scales::Union{Nothing, AbstractVector}=nothing)
+                scales::Union{Nothing, AbstractVector}=nothing,
+                ics::Union{Nothing, AbstractVector{Int}}=nothing)
     L = length(p)
     isnothing(scales) && (scales = ones(L))
     L ≥ 4 || throw(ArgumentError("need at least 4 params: τD, g0, offset, s"))
     L == length(scales) || throw(ArgumentError("Scaling and parameter vector must be of the same length."))
     scaled_p = scales .* p
+
     m = _ndyn_from_len(L - 4)
-    dyn = (m == 0) ? 1.0 : _dynamics_factor(t, @view(scaled_p[5:4+m]), @view(scaled_p[5+m:4+2m]))
+    isnothing(ics) && (ics = ones(Int, m))
+    sum(ics) == m || throw(ArgumentError("The number of dynamic components must be consistent among the parameters `p` and `ics`."))
+
+    dyn = (m == 0) ? 1.0 : _dynamics_factor(t, @view(scaled_p[5:4+m]), @view(scaled_p[5+m:4+2m]), ics)
     udc = udc_3d(t, scaled_p[1], scaled_p[4])
     if t isa AbstractVector
         @. scaled_p[3] + scaled_p[2] * udc * dyn
@@ -233,7 +257,8 @@ Mixture of `n` 3D diffusion components sharing the same structure factor `s`.
 *   `p[2n+3+m:end]` → K_dyn; the fraction corresponding of the population corresponding to the dynamic lifetime
 """
 function fcs_3d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real};
-                      n_diff::Integer=1, scales::Union{Nothing,AbstractVector}=nothing)
+                      n_diff::Integer=1, scales::Union{Nothing,AbstractVector}=nothing,
+                      ics::Union{Nothing, AbstractVector{Int}}=nothing)
     n_diff ≥ 1 || throw(ArgumentError("n_diff must be ≥ 1"))
     L = length(p)
     isnothing(scales) && (scales = ones(L))
@@ -245,6 +270,8 @@ function fcs_3d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<
 
     scaled_p = scales .* p
     m = _ndyn_from_len(L - base)
+    isnothing(ics) && (ics = ones(Int, m))
+    sum(ics) == m || throw(ArgumentError("The number of dynamic components must be consistent among the parameters `p` and `ics`."))
 
     τDs = @view scaled_p[1:n]
     wts = @view scaled_p[n+1:2n]
@@ -254,7 +281,7 @@ function fcs_3d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<
     τdyn = m == 0 ? Float64[] : collect(@view scaled_p[base+1 : base+m])       # 2n+4 : 2n+3+m
     Kdyn = m == 0 ? Float64[] : collect(@view scaled_p[base+m+1 : base+2m])    # 2n+4+m : 2n+3+2m
 
-    dyn = (m == 0) ? 1.0 : _dynamics_factor(t, τdyn, Kdyn)
+    dyn = (m == 0) ? 1.0 : _dynamics_factor(t, τdyn, Kdyn, ics)
     mix = _mdiff(t, τDs, wts, (tt,τ)->udc_3d(tt, τ, s))
     if t isa AbstractVector
         @. offset + g0 * mix * dyn
