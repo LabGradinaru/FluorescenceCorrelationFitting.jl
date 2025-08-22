@@ -132,17 +132,6 @@ function fcs_fit(model::Function, lag_times::AbstractVector,
 end
 
 """
-    _aicc(resid::AbstractVector, k::Int)
-
-Low sample corrected Akaike information criterion estimate on assumed Gaussian residuals.
-"""
-function _aicc(resid::AbstractVector, k::Int)
-    N = length(resid)
-    σ2 = sum(abs2, resid) / N
-    return 2k + N * log(σ2) + (2k^2 + 2k) / (N - k - 1)
-end
-
-"""
     fcs_plot(model::Function, lag_times, data, θ0; fontsize=20, 
              color1=:deepskyblue3, color2=:orangered2, color3=:steelblue4, kwargs...)
 
@@ -162,10 +151,7 @@ function fcs_plot(model::Function, lag_times::AbstractVector, data::AbstractVect
          xscale = log10, height = 400, width = 600)
 
     scatter!(lag_times, data; markersize=10, color=color1, strokewidth=1, strokecolor=:black, alpha=0.7)
-
-    parameters = fit.param .* scales          # physical units
-    param_errors = stderror(fit) .* scales      # LsqFit.stderror
-    lines!(lag_times, model(lag_times, parameters); linewidth=3, color=color2, alpha=0.9)
+    lines!(lag_times, model(lag_times, fit.param .* scales); linewidth=3, color=color2, alpha=0.9)
 
     # Bottom panel: residuals, with LaTeX x/y tick labels.
     Axis(fig[2,1];
@@ -177,5 +163,19 @@ function fcs_plot(model::Function, lag_times::AbstractVector, data::AbstractVect
 
     scatterlines!(lag_times, fit.resid; color=color3, markersize=5, strokewidth=1, alpha=0.7)
 
-    return fig, parameters, param_errors, _aicc(fit.resid, length(θ0))
+    return fig, fit, scales
+end
+
+# Some utility and goodness of fit functions
+parameters(fit::LsqFit.LsqFitResult, scale) = fit.param .* scale
+errors(fit::LsqFit.LsqFitResult, scale) = stderror(fit) .* scale
+function aic(fit::LsqFit.LsqFitResult)
+    k = length(coef(fit)); N = nobs(fit)
+    σ2 = rss(fit) / N
+    return 2k + N * log(σ2) + (2k^2 + 2k) / (N - k - 1)
+end
+function bic(fit::LsqFit.LsqFitResult)
+    k = length(coef(fit)); N = nobs(fit)
+    σ2 = rss(fit) / N
+    return N * log(σ2) + N * k * log(N) / (N - k - 2)
 end
