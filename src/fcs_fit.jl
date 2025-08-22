@@ -1,9 +1,6 @@
-
-using LsqFit
-
-
-
 """
+    log_lags(n_points::Int, τmin::Int, τmax::Int)
+
 Strictly increasing integer log-spaced lags in [τmin, τmax], zero-based.
 Returns *fewer* than n_points if there aren't enough distinct integers.
 """
@@ -94,13 +91,12 @@ Fit with LsqFit using parameter normalization.
 - `wt` (if provided) is forwarded as `weights=wt`.
 Returns the LsqFit result and also `scales` so you can recover physical params.
 """
-function fcs_fit(model::Function,
-                 lag_times::AbstractVector, corr_data::AbstractVector, p0::AbstractVector;
+function fcs_fit(model::Function, lag_times::AbstractVector, 
+                 corr_data::AbstractVector, p0::AbstractVector;
                  wt::Union{Nothing,AbstractVector}=nothing,
                  n_diff::Union{Nothing,Int}=nothing,
                  scales::Union{Nothing,AbstractVector}=nothing,
-                 zero_sub::Real=1.0,
-                 kwargs...)
+                 zero_sub::Real=1.0, kwargs...)
     length(lag_times) == length(corr_data) ||
         throw(ArgumentError("Lag times and correlation values must be of equal length."))
     !isnothing(wt) && (length(wt) == length(lag_times) ||
@@ -130,7 +126,42 @@ function fcs_fit(model::Function,
     # Fit
     fit = isnothing(wt) ?
         curve_fit(model2, collect(lag_times), corr_data, θ0; kwargs...) :
-        curve_fit(model2, collect(lag_times), corr_data, θ0; weights=wt, kwargs...)
+        curve_fit(model2, collect(lag_times), corr_data, wt, θ0; kwargs...)
 
     return fit, scales_
+end
+
+"""
+    _aicc(resid::AbstractVector, k::Int)
+
+Low sample corrected Akaike information criterion estimate.
+"""
+function _aicc(resid::AbstractVector, k::Int)
+    N = length(resid)
+    σ2 = sum(resid.^2)
+    return 2k + N * log(σ2 / N) + (2k^2 + 2k) / (N - k - 1)
+end
+
+"""
+    fcs_plot(model::Function, lag_times, data, θ0; fontsize=20, 
+             color1=:deepskyblue3, color2=:orangered2, color3=:steelblue4, kwargs...)
+
+Fit FCS data with `model` using `fcs_fit` and generate a plot of the fit and the residuals. 
+"""
+function fcs_plot(model::Function, lag_times::AbstractVector, data::AbstractVector, θ0::AbstractVector; 
+                 fontsize::Int = 20, color1=:deepskyblue3, color2=:orangered2, color3=:steelblue4, kwargs...)
+    fit, scales = fcs_fit(model, lag_times, data, θ0; kwargs...)
+
+    fig = Figure(size=(700,600), fontsize=fontsize)
+
+    Axis(fig[1,1], xticklabelsvisible = false, ylabel = L"Correlation, $G(\tau)$", xscale=log10, height=400, width=600)
+    scatter!(lag_times, data, markersize=10, color = color1, strokewidth = 1, strokecolor=:black, alpha=0.7)
+    parameters = fit.param .* scales
+    param_errors = standard_errors(fit) .* scales
+    lines!(lag_times, fcs_3d(lag_times, parameters), linewidth=3, color=color2, alpha=0.9)
+
+    Axis(fig[2,1], xlabel = L"Lag time, $\tau$ [s]", ylabel = L"$\text{Residuals}$", xscale=log10, height=100, width=600)
+    scatterlines!(lag_times, fit.resid, color=color3, markersize=5, strokewidth=1, alpha=0.7)
+
+    fig, parameters, param_errors, _aicc(fit.resid, length(θ0))
 end
