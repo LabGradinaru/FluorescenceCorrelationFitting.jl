@@ -5,7 +5,6 @@ Convert diffusion coefficient `D` and lateral waist `w0` to the lateral diffusio
 @inline τD(D::Real, w0::Real) = w0^2 / (4D)
 @inline diffusivity(τD::Real, w0::Real) = w0^2 / (4τD)
 
-
 """
     Veff(w0, z0)
 Calculate the effective volume from the measured FCS parameters.
@@ -30,22 +29,41 @@ function _normalize_weights(ws::AbstractVector)
     s > 0 ? (w ./ s) : fill(inv(length(w)), length(w))
 end
 
+# determine the number of dynamic components based on the parameter vector length
+@inline function _ndyn_from_len(total_extra::Int)
+    total_extra ≥ 0 || throw(ArgumentError("parameter vector too short"))
+    rem(total_extra, 2) == 0 || throw(ArgumentError("τ_dyn and K_dyn must have equal length"))
+    total_extra ÷ 2
+end
+
 # multiplicative blinking/dynamics factor ∏_j [1 + K_j * exp(-t/τ_j)]
 # returns 1 if no (τ,K) provided 
 function _dynamics_factor(t, τs::AbstractVector, Ks::AbstractVector, ics::AbstractVector{Int})
     length(τs) == length(Ks) || throw(ArgumentError("τs and Ks must have same length"))
-    sum(ics) == length(τs) || throw(ArgumentError("The number of components must match τs and Ks")) 
+    sum(ics) == length(τs) || throw(ArgumentError("The number of components must match τs and Ks"))
+
     if isempty(τs)
-        return t isa AbstractVector ? ones(promote_type(eltype(t), Float64), length(t)) : one(promote_type(typeof(t), Float64))
+        return t isa AbstractVector ?
+            ones(promote_type(eltype(t), Float64), length(t)) :
+            one(promote_type(typeof(t), Float64))
     end
+
     if t isa AbstractVector
         T = promote_type(eltype(t), eltype(τs), eltype(Ks))
         out = ones(T, length(t))
         idx = 1
         @inbounds for i in eachindex(ics)
             nic = ics[i]
-            end_idx = idx+nic-1
-            @. out *= (one(T) + sum(Ks[idx:end_idx] * exp(- t/τs[idx:end_idx])))
+            # accumulate s(t) = Σ_k K_k * exp(-t/τ_k) over this block
+            s = zeros(T, length(t))
+            @inbounds for j = 1:nic
+                k = idx + j - 1
+                τ = τs[k]
+                K = Ks[k]
+                @. s += K * exp(-t/τ)
+            end
+            @. out *= (one(T) + s)
+            idx += nic  # advance to next block
         end
         return out
     else
@@ -54,8 +72,13 @@ function _dynamics_factor(t, τs::AbstractVector, Ks::AbstractVector, ics::Abstr
         idx = 1
         @inbounds for i in eachindex(ics)
             nic = ics[i]
-            end_idx = idx+nic-1
-            out *= (one(T) + sum(Ks[idx:end_idx] * exp(- t/τs[idx:end_idx])))
+            s = zero(T)
+            @inbounds for j = 1:nic
+                k = idx + j - 1
+                s += Ks[k] * exp(-t/τs[k])
+            end
+            out *= (one(T) + s)
+            idx += nic  # advance to next block
         end
         return out
     end
@@ -119,12 +142,6 @@ end
 # Public models (with amplitude g0 and offset, plus optional blinking)
 # ─────────────────────────────────────────────────────────────────────────────
 
-@inline function _ndyn_from_len(total_extra::Int)
-    total_extra ≥ 0 || throw(ArgumentError("parameter vector too short"))
-    rem(total_extra, 2) == 0 || throw(ArgumentError("τ_dyn and K_dyn must have equal length"))
-    total_extra ÷ 2
-end
-
 """
     fcs_2d(t, p; scales, ics)
 
@@ -143,11 +160,44 @@ The parameters vector `p` should be organized as
 `p[1]` is interpretted as the 1/e radius w0.
 
 # Examples
-`fcs_2d(times, [1e-4, 1.0, 0.0, 1e-6, 1e-7, 0.1, 0.1]; ics=[1,1])`
 
-would attempt to fit the the regular diffusion model with initial parameters `τD` = 100 μs,
-`g0` = 1.0, `offset` = 0.0 and two independent dynamic components, multiplying the diffusion model as
-`(1 + T * exp(- t/ τ1)) * (1 + K * exp(- t/ τ2))`
+Evaluate the kernel of a 2d diffusion, `1 / (1 + t/τD)` from times `1e-6` to `1e-5`
+with `τD` = 1 ms multiplied by `g0` = 1.0 and two independent dynamic components,
+`(1 + T * exp(- t/ τ1)) * (1 + K * exp(- t/ τ2))` with `T = K = 0.1` and `τ1 = 1e-4`, `τ2 = 1e-6` seconds:
+
+```jldoctest
+julia> fcs_2d(1e-6:1e-6:1e-5, [1e-3, 1.0, 0.0, 1e-4, 1e-6, 0.1, 0.1])
+
+10-element Vector{Float64}:
+ 1.1382968204673092
+ 1.11065863303906
+ 1.099208790202291
+ 1.0937116359843249
+ 1.0904087865516843
+ 1.0879201516749173
+ 1.085738900216725
+ 1.0836788468371112
+ 1.0816715434967463
+ 1.0796917748436876
+```
+
+As above but with two dependent dynamic components, `(1 + T * exp(- t/ τ1) + K * exp(- t/ τ2))`:
+
+```jldoctest
+julia> fcs_2d(1e-6:1e-6:1e-5, [1e-3, 0.5, 0.0, 1e-4, 1e-6, 0.1, 0.1]; ics=[2])
+
+10-element Vector{Float64}:
+ 1.1346582692228384
+ 1.1093347262019329
+ 1.098727078954773
+ 1.093536362354687
+ 1.0903450120895324
+ 1.0878969468947233
+ 1.085730456988233
+ 1.0836757747038235
+ 1.0816704256764438
+ 1.079691368115418
+```
 """
 function fcs_2d(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real}; 
                 scales::Union{Nothing, AbstractVector}=nothing, 
