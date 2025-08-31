@@ -157,7 +157,8 @@ The parameters vector `p` should be organized as
 `scales` converts from the normalized units of the input to match the units of time.
 `ics` dictates the number of independent components for each dynamic contributor.
 `diffusivity` can be provided as a fixed parameter (e.g., for callibration), in which case
-`p[1]` is interpretted as the 1/e radius w0.
+`p[1]` is interpretted as the 1/e radius, w0.
+
 
 # Examples
 
@@ -223,7 +224,7 @@ function fcs_2d(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real}
 end
 
 """
-    fcs_2d_mixture(t,p)
+    fcs_2d_mdiff(t,p)
 
 Mixture of `n` 2D diffusion components with weights that are normalized internally.
 The parameters vector `p` should be organized as
@@ -305,7 +306,7 @@ function fcs_3d(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real}
 end
 
 """
-    fcs_3d_mixture(t; τDs, s, weights, g0=1, offset=0, τ_dyn=[], K_dyn=[])
+    fcs_3d_mdiff(t; τDs, s, weights, g0=1, offset=0, τ_dyn=[], K_dyn=[])
 
 Mixture of `n` 3D diffusion components sharing the same structure factor `s`.
 

@@ -146,7 +146,7 @@ function fcs_fit(model::Function, lag_times::AbstractVector,
     elseif (upperθ !== nothing)
         curve_fit(model2, x, corr_data, wt, θ0; upper = upperθ, filtered_kwargs...)
     else
-        curve_fit(model2, x, y, θ0; extra_kwargs...)
+        curve_fit(model2, x, y, θ0; filtered_kwargs...)
     end
 
     return fit, scales_
@@ -172,7 +172,8 @@ function fcs_plot(model::Function, lag_times::AbstractVector, data::AbstractVect
          xscale = log10, height = 400, width = 600)
 
     scatter!(lag_times, data; markersize=10, color=color1, strokewidth=1, strokecolor=:black, alpha=0.7)
-    lines!(lag_times, model(lag_times, fit.param .* scales); linewidth=3, color=color2, alpha=0.9)
+    lines!(lag_times, model(lag_times, fit.param .* scales; diffusivity = get(kwargs, :diffusivity, nothing)); 
+           linewidth=3, color=color2, alpha=0.9)
 
     # Bottom panel: residuals, with LaTeX x/y tick labels.
     Axis(fig[2,1];
