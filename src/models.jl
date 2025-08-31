@@ -60,7 +60,7 @@ function _dynamics_factor(t, τs::AbstractVector, Ks::AbstractVector, ics::Abstr
                 k = idx + j - 1
                 τ = τs[k]
                 K = Ks[k]
-                @. s += K * exp(-t/τ)
+                @. s += K * (exp(-t/τ) - 1)
             end
             @. out *= (one(T) + s)
             idx += nic  # advance to next block
@@ -75,7 +75,7 @@ function _dynamics_factor(t, τs::AbstractVector, Ks::AbstractVector, ics::Abstr
             s = zero(T)
             @inbounds for j = 1:nic
                 k = idx + j - 1
-                s += Ks[k] * exp(-t/τs[k])
+                s += Ks[k] * (exp(-t/τs[k]) - 1)
             end
             out *= (one(T) + s)
             idx += nic  # advance to next block
@@ -128,12 +128,12 @@ end
     end
 end
 
-"3D diffusion kernel with structure factor s = z0/w0: 1 / ((1 + t/τD) * sqrt(1 + t/(s^2 τD)))"
-@inline function udc_3d(t, τD, s)
+"3D diffusion kernel with structure factor κ = z0/w0: 1 / ((1 + t/τD) * sqrt(1 + t/(κ^2 τD)))"
+@inline function udc_3d(t, τD, κ)
     if t isa AbstractVector
-        @. inv( (1 + t/τD) * sqrt(1 + t/(s^2 * τD)) )
+        @. inv( (1 + t/τD) * sqrt(1 + t/(κ^2 * τD)) )
     else
-        inv( (1 + t/τD) * sqrt(1 + t/(s^2 * τD)) )
+        inv( (1 + t/τD) * sqrt(1 + t/(κ^2 * τD)) )
     end
 end
 
@@ -164,7 +164,7 @@ The parameters vector `p` should be organized as
 
 Evaluate the kernel of a 2d diffusion, `1 / (1 + t/τD)` from times `1e-6` to `1e-5`
 with `τD` = 1 ms multiplied by `g0` = 1.0 and two independent dynamic components,
-`(1 + T * exp(- t/ τ1)) * (1 + K * exp(- t/ τ2))` with `T = K = 0.1` and `τ1 = 1e-4`, `τ2 = 1e-6` seconds:
+`(1 - T + T * exp(- t/ τ1)) * (1 - K + K * exp(- t/ τ2))` with `T = K = 0.1` and `τ1 = 1e-4`, `τ2 = 1e-6` seconds:
 
 ```jldoctest
 julia> fcs_2d(1e-6:1e-6:1e-5, [1e-3, 1.0, 0.0, 1e-4, 1e-6, 0.1, 0.1])
@@ -182,7 +182,7 @@ julia> fcs_2d(1e-6:1e-6:1e-5, [1e-3, 1.0, 0.0, 1e-4, 1e-6, 0.1, 0.1])
  1.0796917748436876
 ```
 
-As above but with two dependent dynamic components, `(1 + T * exp(- t/ τ1) + K * exp(- t/ τ2))`:
+As above but with two dependent dynamic components, `(1 + T * exp(- t/ τ1) + K * exp(- t/ τ2) - T - K)`:
 
 ```jldoctest
 julia> fcs_2d(1e-6:1e-6:1e-5, [1e-3, 0.5, 0.0, 1e-4, 1e-6, 0.1, 0.1]; ics=[2])
@@ -270,7 +270,7 @@ function fcs_2d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<
 end
 
 """
-    fcs_3d(t; τD, s, g0=1, offset=0, τ_dyn=[], K_dyn=[])
+    fcs_3d(t; τD, κ, g0=1, offset=0, τ_dyn=[], K_dyn=[])
 
 Single-component 3D diffusion with optional dynamics.
 The parameters vector `p` should be organized as
@@ -278,7 +278,7 @@ The parameters vector `p` should be organized as
 *   `p[1]` → τD; the diffusion time
 *   `p[2]` → g0; the zero-lag autocorrelation
 *   `p[3]` → offset; the offset of the correlation from 0
-*   `p[4]` → s; the structure factor `s = z0/w0`
+*   `p[4]` → κ; the structure factor `κ = z0/w0`
 *   `p[5:m]` → τ_dyn; the dynamic lifetimes
 *   `p[m+1:N]` → K_dyn; the fraction corresponding of the population corresponding to the dynamic lifetime
 """
@@ -288,7 +288,7 @@ function fcs_3d(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real}
                 diffusivity::Union{Nothing,Real}=nothing)
     L = length(p)
     isnothing(scales) && (scales = ones(L))
-    L ≥ 4 || throw(ArgumentError("need at least 4 params: τD, g0, offset, s"))
+    L ≥ 4 || throw(ArgumentError("need at least 4 params: τD, g0, offset, κ"))
     L == length(scales) || throw(ArgumentError("Scaling and parameter vector must be of the same length."))
     scaled_p = scales .* p
 
@@ -306,15 +306,15 @@ function fcs_3d(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real}
 end
 
 """
-    fcs_3d_mdiff(t; τDs, s, weights, g0=1, offset=0, τ_dyn=[], K_dyn=[])
+    fcs_3d_mdiff(t; τDs, κ, weights, g0=1, offset=0, τ_dyn=[], K_dyn=[])
 
-Mixture of `n` 3D diffusion components sharing the same structure factor `s`.
+Mixture of `n` 3D diffusion components sharing the same structure factor `κ`.
 
 *   `p[1:n]` → τDs; the diffusion times of each diffuser
 *   `p[n+1:2n]` → weights: the fraction of diffuser in each population
 *   `p[2n+1]` → g0; the zero-lag autocorrelation
 *   `p[2n+2]` → offset; the offset of the correlation from 0
-*   `p[2n+3]` → s; the structure factor `s = z0/w0`
+*   `p[2n+3]` → κ; the structure factor `κ = z0/w0`
 *   `p[2n+3:2n+2+m]` → τ_dyn; the dynamic lifetimes
 *   `p[2n+3+m:end]` → K_dyn; the fraction corresponding of the population corresponding to the dynamic lifetime
 """
