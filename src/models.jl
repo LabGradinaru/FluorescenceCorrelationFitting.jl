@@ -60,7 +60,7 @@ function _dynamics_factor(t, τs::AbstractVector, Ks::AbstractVector, ics::Abstr
                 k = idx + j - 1
                 τ = τs[k]
                 K = Ks[k]
-                @. s += K * exp(-t/τ)
+                @. s += K * (exp(-t/τ) - 1)
             end
             @. out *= (one(T) + s)
             idx += nic  # advance to next block
@@ -75,7 +75,7 @@ function _dynamics_factor(t, τs::AbstractVector, Ks::AbstractVector, ics::Abstr
             s = zero(T)
             @inbounds for j = 1:nic
                 k = idx + j - 1
-                s += Ks[k] * exp(-t/τs[k])
+                s += Ks[k] * (exp(-t/τs[k]) - 1)
             end
             out *= (one(T) + s)
             idx += nic  # advance to next block
@@ -110,7 +110,7 @@ end
 # Base kernels (unit-amplitude, zero-offset)
 # ─────────────────────────────────────────────────────────────────────────────
 
-"2D diffusion kernel: 1 / (1 + t/τD)"
+"2D diffusion kernel"
 @inline function udc_2d(t, τD) 
     if t isa AbstractVector 
         @. inv(1 + t/τD) 
@@ -119,7 +119,7 @@ end
     end
 end
 
-"2D anomalous diffusion kernel: 1 / (1 + (t/τD)^α)"
+"2D anomalous diffusion kernel"
 @inline function udc_2d_anom(t, τD, α)
     if t isa AbstractVector
         @. inv(1 + (t/τD)^α)
@@ -128,12 +128,21 @@ end
     end
 end
 
-"3D diffusion kernel with structure factor s = z0/w0: 1 / ((1 + t/τD) * sqrt(1 + t/(s^2 τD)))"
-@inline function udc_3d(t, τD, s)
+"3D diffusion kernel with structure factor κ = z0/w0"
+@inline function udc_3d(t, τD, κ)
     if t isa AbstractVector
-        @. inv( (1 + t/τD) * sqrt(1 + t/(s^2 * τD)) )
+        @. inv( (1 + t/τD) * sqrt(1 + t/(κ^2 * τD)) )
     else
-        inv( (1 + t/τD) * sqrt(1 + t/(s^2 * τD)) )
+        inv( (1 + t/τD) * sqrt(1 + t/(κ^2 * τD)) )
+    end
+end
+
+"3D anomalous diffusion kernel with structure factor κ = z0/w0"
+@inline function udc_3d_anom(t, τD, α)
+    if t isa AbstractVector
+        @. inv((1 + (t/τD)^α) * sqrt(1 + (t/τD)^α / κ^2))
+    else
+        inv((1 + (t/τD)^α) * sqrt(1 + (t/τD)^α / κ^2))
     end
 end
 
@@ -143,7 +152,7 @@ end
 # ─────────────────────────────────────────────────────────────────────────────
 
 """
-    fcs_2d(t, p; scales, ics)
+    fcs_2d(t, p; scales, ics, diffusivity)
 
 Single-component 2D diffusion with optional multiplicative dynamics (triplet/blinking).
 The parameters vector `p` should be organized as
@@ -157,13 +166,14 @@ The parameters vector `p` should be organized as
 `scales` converts from the normalized units of the input to match the units of time.
 `ics` dictates the number of independent components for each dynamic contributor.
 `diffusivity` can be provided as a fixed parameter (e.g., for callibration), in which case
-`p[1]` is interpretted as the 1/e radius w0.
+`p[1]` is interpretted as the 1/e radius, w0.
+
 
 # Examples
 
 Evaluate the kernel of a 2d diffusion, `1 / (1 + t/τD)` from times `1e-6` to `1e-5`
 with `τD` = 1 ms multiplied by `g0` = 1.0 and two independent dynamic components,
-`(1 + T * exp(- t/ τ1)) * (1 + K * exp(- t/ τ2))` with `T = K = 0.1` and `τ1 = 1e-4`, `τ2 = 1e-6` seconds:
+`(1 - T + T * exp(- t/ τ1)) * (1 - K + K * exp(- t/ τ2))` with `T = K = 0.1` and `τ1 = 1e-4`, `τ2 = 1e-6` seconds:
 
 ```jldoctest
 julia> fcs_2d(1e-6:1e-6:1e-5, [1e-3, 1.0, 0.0, 1e-4, 1e-6, 0.1, 0.1])
@@ -181,7 +191,7 @@ julia> fcs_2d(1e-6:1e-6:1e-5, [1e-3, 1.0, 0.0, 1e-4, 1e-6, 0.1, 0.1])
  1.0796917748436876
 ```
 
-As above but with two dependent dynamic components, `(1 + T * exp(- t/ τ1) + K * exp(- t/ τ2))`:
+As above but with two dependent dynamic components, `(1 + T * exp(- t/ τ1) + K * exp(- t/ τ2) - T - K)`:
 
 ```jldoctest
 julia> fcs_2d(1e-6:1e-6:1e-5, [1e-3, 0.5, 0.0, 1e-4, 1e-6, 0.1, 0.1]; ics=[2])
@@ -223,7 +233,7 @@ function fcs_2d(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real}
 end
 
 """
-    fcs_2d_mixture(t,p)
+    fcs_2d_mdiff(t, p; scales, ics, diffusivity)
 
 Mixture of `n` 2D diffusion components with weights that are normalized internally.
 The parameters vector `p` should be organized as
@@ -268,8 +278,45 @@ function fcs_2d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<
     end
 end
 
+
 """
-    fcs_3d(t; τD, s, g0=1, offset=0, τ_dyn=[], K_dyn=[])
+    fcs_2d_anom(t, p; scales, ics, diffusivity)
+
+Single-component 2D anomolous diffusion with optional multiplicative dynamics (triplet/blinking).
+The parameters vector `p` should be organized as
+
+*   `p[1]` → τD; the diffusion time
+*   `p[2]` → g0; the zero-lag autocorrelation
+*   `p[3]` → offset; the offset of the correlation from 0
+*   `p[4]` → α; the anomalous exponent 
+*   `p[5:m]` → τ_dyn; the dynamic lifetimes
+*   `p[m+1:N]` → K_dyn; the fraction corresponding of the population corresponding to the dynamic lifetime
+"""
+function fcs_2d_anom(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real}; 
+                     scales::Union{Nothing, AbstractVector}=nothing, 
+                     ics::Union{Nothing, AbstractVector{Int}}=nothing,
+                     diffusivity::Union{Nothing,Real}=nothing)
+    L = length(p)
+    isnothing(scales) && (scales = ones(L))
+    L == length(scales) || throw(ArgumentError("Scaling and parameter vector must be of the same length."))
+    L ≥ 4 || throw(ArgumentError("need at least 4 params: τD, g0, offset, α"))
+    scaled_p = scales .* p
+
+    m = _ndyn_from_len(L - 4)
+    isnothing(ics) && (ics = ones(Int, m))
+    sum(ics) == m || throw(ArgumentError("The number of dynamic components must be consistent among the parameters `p` and `ics`."))
+
+    dyn = (m == 0) ? 1.0 : _dynamics_factor(t, @view(scaled_p[5:4+m]), @view(scaled_p[5+m:4+2m]), ics)
+    udc = isnothing(diffusivity) ? udc_2d_anom(t, scaled_p[1], scaled_p[4]) : udc_2d_anom(t, τD(diffusivity, scaled_p[1]), scaled_p[4])
+    if t isa AbstractVector
+        @. scaled_p[3] + scaled_p[2] * udc * dyn
+    else
+        scaled_p[3] + scaled_p[2] * udc * dyn
+    end
+end
+
+"""
+    fcs_3d(t, p; scales, ics, diffusivity)
 
 Single-component 3D diffusion with optional dynamics.
 The parameters vector `p` should be organized as
@@ -277,7 +324,7 @@ The parameters vector `p` should be organized as
 *   `p[1]` → τD; the diffusion time
 *   `p[2]` → g0; the zero-lag autocorrelation
 *   `p[3]` → offset; the offset of the correlation from 0
-*   `p[4]` → s; the structure factor `s = z0/w0`
+*   `p[4]` → κ; the structure factor `κ = z0/w0`
 *   `p[5:m]` → τ_dyn; the dynamic lifetimes
 *   `p[m+1:N]` → K_dyn; the fraction corresponding of the population corresponding to the dynamic lifetime
 """
@@ -287,7 +334,7 @@ function fcs_3d(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real}
                 diffusivity::Union{Nothing,Real}=nothing)
     L = length(p)
     isnothing(scales) && (scales = ones(L))
-    L ≥ 4 || throw(ArgumentError("need at least 4 params: τD, g0, offset, s"))
+    L ≥ 4 || throw(ArgumentError("need at least 4 params: τD, g0, offset, κ"))
     L == length(scales) || throw(ArgumentError("Scaling and parameter vector must be of the same length."))
     scaled_p = scales .* p
 
@@ -305,15 +352,15 @@ function fcs_3d(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real}
 end
 
 """
-    fcs_3d_mixture(t; τDs, s, weights, g0=1, offset=0, τ_dyn=[], K_dyn=[])
+    fcs_3d_mdiff(t, p; scales, ics, diffusivity)
 
-Mixture of `n` 3D diffusion components sharing the same structure factor `s`.
+Mixture of `n` 3D diffusion components sharing the same structure factor `κ`.
 
 *   `p[1:n]` → τDs; the diffusion times of each diffuser
 *   `p[n+1:2n]` → weights: the fraction of diffuser in each population
 *   `p[2n+1]` → g0; the zero-lag autocorrelation
 *   `p[2n+2]` → offset; the offset of the correlation from 0
-*   `p[2n+3]` → s; the structure factor `s = z0/w0`
+*   `p[2n+3]` → κ; the structure factor `κ = z0/w0`
 *   `p[2n+3:2n+2+m]` → τ_dyn; the dynamic lifetimes
 *   `p[2n+3+m:end]` → K_dyn; the fraction corresponding of the population corresponding to the dynamic lifetime
 """

@@ -42,7 +42,7 @@ function infer_noscale_indices(model_name::Symbol, p0::AbstractVector; n_diff::U
             append!(idx, collect((base+m+1):(base+2m)))
         end
         return idx
-    elseif model_name === :fcs_3d
+    elseif (model_name === :fcs_3d) || (model_name === :fcs_2d_anom)
         m = _ndyn_from_len(L - 4)
         return m == 0 ? Int[] : collect((4+m+1):(4+2m))
     elseif model_name === :fcs_3d_mdiff
@@ -146,57 +146,8 @@ function fcs_fit(model::Function, lag_times::AbstractVector,
     elseif (upperθ !== nothing)
         curve_fit(model2, x, corr_data, wt, θ0; upper = upperθ, filtered_kwargs...)
     else
-        curve_fit(model2, x, y, θ0; extra_kwargs...)
+        curve_fit(model2, x, y, θ0; filtered_kwargs...)
     end
 
     return fit, scales_
-end
-
-"""
-    fcs_plot(model::Function, lag_times, data, θ0; fontsize=20, 
-             color1=:deepskyblue3, color2=:orangered2, color3=:steelblue4, kwargs...)
-
-Fit FCS data with `model` using `fcs_fit` and generate a plot of the fit and the residuals. 
-"""
-function fcs_plot(model::Function, lag_times::AbstractVector, data::AbstractVector, θ0::AbstractVector; 
-                  fontsize::Int = 20, color1=:deepskyblue3, color2=:orangered2, color3=:steelblue4, kwargs...)
-    fit, scales = fcs_fit(model, lag_times, data, θ0; kwargs...)
-
-    fig = Figure(size=(700, 600), fontsize=fontsize)
-
-    # Top panel (x ticks hidden). y-ticks rendered with LaTeX.
-    Axis(fig[1,1];
-         xticklabelsvisible = false,
-         ylabel = L"\mathrm{Correlation} \; G(\tau)",
-         ytickformat = ys -> [L"%$(round(ys[i],sigdigits=2))" for i in eachindex(ys)],
-         xscale = log10, height = 400, width = 600)
-
-    scatter!(lag_times, data; markersize=10, color=color1, strokewidth=1, strokecolor=:black, alpha=0.7)
-    lines!(lag_times, model(lag_times, fit.param .* scales); linewidth=3, color=color2, alpha=0.9)
-
-    # Bottom panel: residuals, with LaTeX x/y tick labels.
-    Axis(fig[2,1];
-         xlabel = L"\mathrm{Logarithmic\ lag\ time}\; \log_{10}{\tau}",
-         ylabel = L"\mathrm{Residuals}",
-         xscale = log10, height = 100, width = 600,
-         xtickformat = xs -> [L"%$(log10(xs[i]))" for i in eachindex(xs)],
-         ytickformat = ys -> [L"%$(round(ys[i],sigdigits=2))" for i in eachindex(ys)])
-
-    scatterlines!(lag_times, fit.resid; color=color3, markersize=5, strokewidth=1, alpha=0.7)
-
-    return fig, fit, scales
-end
-
-# Some utility and goodness of fit functions
-parameters(fit::LsqFit.LsqFitResult, scale) = fit.param .* scale
-errors(fit::LsqFit.LsqFitResult, scale) = stderror(fit) .* scale
-function aic(fit::LsqFit.LsqFitResult)
-    k = length(coef(fit)); N = nobs(fit)
-    σ2 = rss(fit) / N
-    return 2k + N * log(σ2) + (2k^2 + 2k) / (N - k - 1)
-end
-function bic(fit::LsqFit.LsqFitResult)
-    k = length(coef(fit)); N = nobs(fit)
-    σ2 = rss(fit) / N
-    return N * log(σ2) + N * k * log(N) / (N - k - 2)
 end
