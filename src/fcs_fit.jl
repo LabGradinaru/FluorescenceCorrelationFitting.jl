@@ -81,6 +81,11 @@ function build_scales_from_p0(p0::AbstractVector{<:Real}; noscale_idx::AbstractV
     return θ0, s
 end
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Top-level fitting functions
+# ─────────────────────────────────────────────────────────────────────────────
+
 """
     fcs_fit(model::Function, lag_times, corr_data, p0; 
             wt=nothing, n_diff=nothing, scales=nothing, zero_sub=1.0, kwargs...)

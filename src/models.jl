@@ -232,6 +232,7 @@ function fcs_2d(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real}
     end
 end
 
+
 """
     fcs_2d_mdiff(t, p; scales, ics, diffusivity)
 
@@ -315,6 +316,7 @@ function fcs_2d_anom(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:
     end
 end
 
+
 """
     fcs_3d(t, p; scales, ics, diffusivity)
 
@@ -350,6 +352,7 @@ function fcs_3d(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real}
         scaled_p[3] + scaled_p[2] * udc * dyn
     end
 end
+
 
 """
     fcs_3d_mdiff(t, p; scales, ics, diffusivity)

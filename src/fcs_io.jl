@@ -8,15 +8,20 @@ model parameter vectors:
 - all dynamic times (τ_dyn)
 - all dynamic fractions (K_dyn)
 """
-function infer_parameter_list(model_name::Symbol, params::AbstractVector; n_diff::Union{Nothing,Int}=nothing)
+function infer_parameter_list(model_name::Symbol, params::AbstractVector; 
+                              n_diff::Union{Nothing,Int}=nothing, 
+                              diffusivity::Union{Nothing,Real}=nothing)
     L = length(params)
     column_names = String[]
 
     if model_name === :fcs_2d
         # base = 3 → τD, g0, offset
         m = _ndyn_from_len(L - 3)
+        isnothing(diffusivity) ? 
+        append!(column_names, ["Diffusion time τ_D"]) : 
+        append!(column_names, ["Beam width w_0"])
+
         append!(column_names, [
-            "Diffusion time τ_D",
             "Current amplitude G(0)",
             "Offset G(∞)",
         ])
@@ -30,17 +35,17 @@ function infer_parameter_list(model_name::Symbol, params::AbstractVector; n_diff
 
         append!(column_names, ["Diffusion time $(i) τ_D[$i]"      for i in 1:n])
         append!(column_names, ["Population fraction $(i) w[$i]"   for i in 1:n])
-        append!(column_names, [
-            "Current amplitude G(0)",
-            "Offset G(∞)",
-        ])
+        append!(column_names, ["Current amplitude G(0)", "Offset G(∞)"])
         append!(column_names, ["Dynamic time $(i) (τ_dyn)"      for i in 1:m])
         append!(column_names, ["Dynamic fraction $(i) (K_dyn)"  for i in 1:m])
     elseif model_name === :fcs_3d
         # base = 4 → τD, g0, offset, κ
         m = _ndyn_from_len(L - 4)
+        isnothing(diffusivity) ? 
+        append!(column_names, ["Diffusion time τ_D"]) : 
+        append!(column_names, ["Beam width w_0"])
+
         append!(column_names, [
-            "Diffusion time τ_D",
             "Current amplitude G(0)",
             "Offset G(∞)",
             "Structure factor κ",
@@ -126,13 +131,15 @@ end
 
 Generate a table of the fitted parameters corresponding to an FCS `LsqFitResult`, `fit`, and the goodness of fit, BIC.    
 """
-function fcs_table(model::Function, fit::LsqFit.LsqFitResult, scales::AbstractVector; backend::Symbol=:html)
+function fcs_table(model::Function, fit::LsqFit.LsqFitResult, scales::AbstractVector; 
+                   backend::Symbol=:html, n_diff::Union{Nothing,Int}=nothing, 
+                   diffusivity::Union{Nothing, Real}=nothing)
     vals = parameters(fit, scales)
     errs = errors(fit, scales)
 
     mname = nameof(model)  # Symbol if model is a named function
     model_sym = mname isa Symbol ? mname : :unknown
-    parameter_list = infer_parameter_list(model_sym, vals)
+    parameter_list = infer_parameter_list(model_sym, vals; n_diff, diffusivity)
 
     n = min(length(parameter_list), length(vals), length(errs))
     data = hcat(parameter_list[1:n], vals[1:n], errs[1:n])
