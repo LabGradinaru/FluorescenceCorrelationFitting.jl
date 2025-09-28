@@ -233,8 +233,8 @@ function fcs_2d(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real}
     sum(ics) == m || throw(ArgumentError("The number of dynamic components must be consistent among the parameters `p` and `ics`."))
 
     dyn = (m == 0) ? 1.0 : 
-    _dynamics_factor(t, @view(scaled_p[n_default_params+1:n_default_params+m]), 
-                     @view(scaled_p[n_default_params+1+m:n_default_params+2m]), ics)
+        _dynamics_factor(t, @view(scaled_p[n_default_params+1:n_default_params+m]), 
+                         @view(scaled_p[n_default_params+1+m:n_default_params+2m]), ics)
 
     udc = isnothing(diffusivity) ? udc_2d(t, scaled_p[1]) : udc_2d(t, τD(diffusivity, scaled_p[1]))
     if t isa AbstractVector
@@ -332,12 +332,12 @@ function fcs_2d_anom(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:
     sum(ics) == m || throw(ArgumentError("The number of dynamic components must be consistent among the parameters `p` and `ics`."))
 
     dyn = (m == 0) ? 1.0 : 
-    _dynamics_factor(t, @view(scaled_p[n_default_params+1:n_default_params+m]), 
-                     @view(scaled_p[n_default_params+1+m:n_default_params+2m]), ics)
+        _dynamics_factor(t, @view(scaled_p[n_default_params+1:n_default_params+m]), 
+                         @view(scaled_p[n_default_params+1+m:n_default_params+2m]), ics)
 
     udc = isnothing(diffusivity) ? 
-    udc_2d_anom(t, scaled_p[1], scaled_p[n_default_params]) : 
-    udc_2d_anom(t, τD(diffusivity, scaled_p[1]), scaled_p[n_default_params])
+        udc_2d_anom(t, scaled_p[1], scaled_p[n_default_params]) : 
+        udc_2d_anom(t, τD(diffusivity, scaled_p[1]), scaled_p[n_default_params])
     if t isa AbstractVector
         if isnothing(offset)
             @. scaled_p[3] + scaled_p[2] * udc * dyn
@@ -386,12 +386,12 @@ function fcs_3d(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real}
     sum(ics) == m || throw(ArgumentError("The number of dynamic components must be consistent among the parameters `p` and `ics`."))
 
     dyn = (m == 0) ? 1.0 : 
-    _dynamics_factor(t, @view(scaled_p[n_default_params+1:n_default_params+m]), 
-                     @view(scaled_p[n_default_params+1+m:n_default_params+2m]), ics)
+        _dynamics_factor(t, @view(scaled_p[n_default_params+1:n_default_params+m]), 
+                         @view(scaled_p[n_default_params+1+m:n_default_params+2m]), ics)
 
     udc = isnothing(diffusivity) ? 
-    udc_3d(t, scaled_p[1], scaled_p[n_default_params]) : 
-    udc_3d(t, τD(diffusivity, scaled_p[1]), scaled_p[n_default_params])
+        udc_3d(t, scaled_p[1], scaled_p[n_default_params]) : 
+        udc_3d(t, τD(diffusivity, scaled_p[1]), scaled_p[n_default_params])
     if t isa AbstractVector
         if isnothing(offset)
             @. scaled_p[3] + scaled_p[2] * udc * dyn
