@@ -268,14 +268,15 @@ The parameters vector `p` should be organized as
 """
 function fcs_2d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real};
                       n_diff::Integer=1, scales::Union{Nothing,AbstractVector}=nothing,
-                      ics::Union{Nothing, AbstractVector{Int}}=nothing)
+                      ics::Union{Nothing, AbstractVector{Int}}=nothing,
+                      offset::Union{Nothing, Real}=nothing)
     n_diff ≥ 1 || throw(ArgumentError("n_diff must be ≥ 1"))
     L = length(p)
     isnothing(scales) && (scales = ones(L))
     L == length(scales) || throw(ArgumentError("Scaling and parameter vector must be of the same length."))
 
     n = n_diff
-    base = 2n + 2
+    base = isnothing(offset) ? 2n + 2 : 2n + 1
     L ≥ base || throw(ArgumentError("p too short for n_diff=$n (need ≥ $(base))"))
 
     scaled_p = scales .* p
@@ -286,16 +287,23 @@ function fcs_2d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<
     τDs = @view scaled_p[1:n]
     wts = @view scaled_p[n+1:2n]
     g0 = scaled_p[2n+1]
-    offset = scaled_p[2n+2]
     τdyn = m == 0 ? Float64[] : collect(@view scaled_p[base+1 : base+m])
     Kdyn = m == 0 ? Float64[] : collect(@view scaled_p[base+m+1 : base+2m])
 
     dyn = (m == 0) ? 1.0 : _dynamics_factor(t, τdyn, Kdyn, ics)
     mix = _mdiff(t, τDs, wts, (tt,τ)->udc_2d(tt,τ))
     if t isa AbstractVector
-        @. offset + g0 * mix * dyn
+        if isnothing(offset)
+            @. scaled_p[2n+2] + g0 * mix * dyn
+        else
+            @. offset + g0 * mix * dyn
+        end
     else
-        offset + g0 * mix * dyn
+        if isnothing(offset)
+            scaled_p[2n+2] + g0 * mix * dyn
+        else
+            offset + g0 * mix * dyn
+        end
     end
 end
 
@@ -375,13 +383,13 @@ function fcs_3d(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real}
     L = length(p)
     isnothing(scales) && (scales = ones(L))
     
-    n_default_params::Int = isnothing(offset) ? 4 : 3
+    n_default_params = isnothing(offset) ? 4 : 3
     L ≥ n_default_params || throw(ArgumentError("Need at least $n_default_params input parameters."))
 
     L == length(scales) || throw(ArgumentError("Scaling and parameter vector must be of the same length."))
     scaled_p = scales .* p
 
-    m = _ndyn_from_len(L - n_default_params)
+    m = _ndyn_from_len(L - n_default_params) # some sort of instability in offset??? n_default_params changing from 4 to 3 while fitting...
     isnothing(ics) && (ics = ones(Int, m))
     sum(ics) == m || throw(ArgumentError("The number of dynamic components must be consistent among the parameters `p` and `ics`."))
 
@@ -423,14 +431,15 @@ Mixture of `n` 3D diffusion components sharing the same structure factor `κ`.
 """
 function fcs_3d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real};
                       n_diff::Integer=1, scales::Union{Nothing,AbstractVector}=nothing,
-                      ics::Union{Nothing, AbstractVector{Int}}=nothing)
+                      ics::Union{Nothing, AbstractVector{Int}}=nothing,
+                      offset::Union{Nothing,Real}=nothing)
     n_diff ≥ 1 || throw(ArgumentError("n_diff must be ≥ 1"))
     L = length(p)
     isnothing(scales) && (scales = ones(L))
     L == length(scales) || throw(ArgumentError("Scaling and parameter vector must be of the same length."))
 
     n = n_diff
-    base = 2n + 3
+    base = isnothing(offset) ? 2n + 3 : 2n + 2
     L ≥ base || throw(ArgumentError("p too short for n_diff=$n (need ≥ $(base))"))
 
     scaled_p = scales .* p
@@ -441,16 +450,23 @@ function fcs_3d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<
     τDs = @view scaled_p[1:n]
     wts = @view scaled_p[n+1:2n]
     g0 = scaled_p[2n+1]
-    offset = scaled_p[2n+2]
-    s = scaled_p[2n+3]
+    s = scaled_p[base]
     τdyn = m == 0 ? Float64[] : collect(@view scaled_p[base+1 : base+m])       # 2n+4 : 2n+3+m
     Kdyn = m == 0 ? Float64[] : collect(@view scaled_p[base+m+1 : base+2m])    # 2n+4+m : 2n+3+2m
 
     dyn = (m == 0) ? 1.0 : _dynamics_factor(t, τdyn, Kdyn, ics)
     mix = _mdiff(t, τDs, wts, (tt,τ)->udc_3d(tt, τ, s))
     if t isa AbstractVector
-        @. offset + g0 * mix * dyn
+        if isnothing(offset)
+            @. scaled_p[2n+2] + g0 * mix * dyn
+        else
+            @. offset + g0 * mix * dyn
+        end
     else
-        offset + g0 * mix * dyn
+        if isnothing(offset)
+            scaled_p[2n+2] + g0 * mix * dyn
+        else
+            offset + g0 * mix * dyn
+        end
     end
 end

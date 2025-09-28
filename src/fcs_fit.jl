@@ -28,14 +28,19 @@ Return indices of the parameter vector that should NOT be scaled (kept at scale 
 - Mixture weights
 - K_dyn fractions
 """
-function infer_noscale_indices(model_name::Symbol, p0::AbstractVector; n_diff::Union{Nothing,Int}=nothing)
+function infer_noscale_indices(model_name::Symbol, p0::AbstractVector; 
+                               n_diff::Union{Nothing,Int}=nothing,
+                               offset::Union{Nothing,Real}=nothing)
     L = length(p0)
     if model_name === :fcs_2d
-        m = _ndyn_from_len(L - 3)
-        return m == 0 ? Int[] : collect((3+m+1):(3+2m))
+        base = isnothing(offset) ? 3 : 2
+        m = _ndyn_from_len(L - base)
+        return m == 0 ? Int[] : collect((base+m+1):(base+2m))
     elseif model_name === :fcs_2d_mdiff
         isnothing(n_diff) && throw(ArgumentError("n_diff required for fcs_2d_mdiff"))
-        n = n_diff; base = 2n + 2; m = _ndyn_from_len(L - base)
+        n = n_diff
+        base = isnothing(offset) ? 2n + 2 : 2n + 1
+        m = _ndyn_from_len(L - base)
         idx = Int[]
         append!(idx, collect((n+1):(2n)))
         if m > 0
@@ -43,11 +48,14 @@ function infer_noscale_indices(model_name::Symbol, p0::AbstractVector; n_diff::U
         end
         return idx
     elseif (model_name === :fcs_3d) || (model_name === :fcs_2d_anom)
-        m = _ndyn_from_len(L - 4)
-        return m == 0 ? Int[] : collect((4+m+1):(4+2m))
+        base = isnothing(offset) ? 4 : 3
+        m = _ndyn_from_len(L - base)
+        return m == 0 ? Int[] : collect((base+m+1):(base+2m))
     elseif model_name === :fcs_3d_mdiff
         isnothing(n_diff) && throw(ArgumentError("n_diff required for fcs_3d_mdiff"))
-        n = n_diff; base = 2n + 3; m = _ndyn_from_len(L - base)
+        n = n_diff
+        base = isnothing(offset) ? 2n + 3 : 2n + 2
+        m = _ndyn_from_len(L - base)
         idx = Int[]
         append!(idx, collect((n+1):(2n)))
         if m > 0
@@ -104,6 +112,7 @@ function fcs_fit(model::Function, lag_times::AbstractVector,
                  scales::Union{Nothing,AbstractVector}=nothing,
                  ics::Union{Nothing,AbstractVector{Int}}=nothing,
                  diffusivity::Union{Nothing,Real}=nothing,
+                 offset::Union{Nothing,Real}=nothing,
                  zero_sub::Real=1.0, kwargs...)
     # consistency checks
     length(lag_times) == length(corr_data) ||
@@ -121,7 +130,7 @@ function fcs_fit(model::Function, lag_times::AbstractVector,
     model_sym = mname isa Symbol ? mname : :unknown
 
     # Decide which indices should not be scaled
-    noscale_idx = infer_noscale_indices(model_sym, p0; n_diff=n_diff)
+    noscale_idx = infer_noscale_indices(model_sym, p0; n_diff, offset)
 
     # Build scales if not provided; get normalized θ0
     if isnothing(scales)
@@ -134,8 +143,8 @@ function fcs_fit(model::Function, lag_times::AbstractVector,
 
     # Build a two-arg model for LsqFit that maps θ → p
     model2 = isnothing(n_diff) ?
-        ((x, θ) -> model(x, θ; scales=scales_, ics, diffusivity)) :
-        ((x, θ) -> model(x, θ; scales=scales_, ics, diffusivity, n_diff))
+        ((x, θ) -> model(x, θ; scales=scales_, ics, diffusivity, offset)) :
+        ((x, θ) -> model(x, θ; scales=scales_, ics, diffusivity, n_diff, offset))
 
     # Extract optional bounds/weights from kwargs
     lower_in = get(kwargs, :lower, nothing)

@@ -93,63 +93,62 @@ model parameter vectors:
 """
 function infer_parameter_list(model_name::Symbol, params::AbstractVector; 
                               n_diff::Union{Nothing,Int}=nothing, 
-                              diffusivity::Union{Nothing,Real}=nothing)
+                              diffusivity::Union{Nothing,Real}=nothing,
+                              offset::Union{Nothing,Real}=nothing)
     L = length(params)
     column_names = String[]
 
     if model_name === :fcs_2d
-        # base = 3 → τD, g0, offset
-        m = _ndyn_from_len(L - 3)
-        isnothing(diffusivity) ? 
-        append!(column_names, ["Diffusion time τ_D [s]"]) : 
-        append!(column_names, ["Diffusion time τ_D [s]", "Beam width w_0 [m]"])
-
-        append!(column_names, [
-            "Current amplitude G(0)",
-            "Offset G(∞)",
-        ])
-        append!(column_names, ["Dynamic time $(i) (τ_dyn) [s]"      for i in 1:m])
-        append!(column_names, ["Dynamic fraction $(i) (K_dyn)"  for i in 1:m])
+        m = isnothing(offset) ? _ndyn_from_len(L - 3) : _ndyn_from_len(L - 2)
+        append!(column_names, ["Diffusion time τ_D [s]"])
+        !isnothing(diffusivity) && (append!(column_names, ["Beam width w_0 [m]"]))
+        append!(column_names, ["Current amplitude G(0)"])
+        isnothing(offset) && (append!(column_names, ["Offset G(∞)"]))
+        append!(column_names, ["Dynamic time $(i) (τ_dyn) [s]" for i in 1:m])
+        append!(column_names, ["Dynamic fraction $(i) (K_dyn)" for i in 1:m])
     elseif model_name === :fcs_2d_mdiff
         isnothing(n_diff) && throw(ArgumentError("n_diff required for fcs_2d_mdiff"))
         n = n_diff
-        base = 2n + 2  # τDs[1:n], wts[1:n], g0, offset
+        base = isnothing(offset) ? 2n + 2 : 2n + 1
         m = _ndyn_from_len(L - base)
 
-        append!(column_names, ["Diffusion time $(i) τ_D[$i] [s]"      for i in 1:n])
-        append!(column_names, ["Population fraction $(i) w[$i]"   for i in 1:n])
-        append!(column_names, ["Current amplitude G(0)", "Offset G(∞)"])
-        append!(column_names, ["Dynamic time $(i) (τ_dyn) [s]"      for i in 1:m])
-        append!(column_names, ["Dynamic fraction $(i) (K_dyn)"  for i in 1:m])
+        append!(column_names, ["Diffusion time $(i) τ_D[$i] [s]" for i in 1:n])
+        append!(column_names, ["Population fraction $(i) w[$i]" for i in 1:n])
+        append!(column_names, ["Current amplitude G(0)"])
+        isnothing(offset) && (append!(column_names, ["Offset G(∞)"]))
+        append!(column_names, ["Dynamic time $(i) (τ_dyn) [s]" for i in 1:m])
+        append!(column_names, ["Dynamic fraction $(i) (K_dyn)" for i in 1:m])
+    elseif model_name == :fcs_2d_anom
+        m = isnothing(offset) ? _ndyn_from_len(L - 4) : _ndyn_from_len(L - 3)
+        append!(column_names, ["Diffusion time τ_D [s]"])
+        isnothing(diffusivity) && (append!(column_names, ["Beam width w_0 [m]"]))
+        append!(column_names, ["Current amplitude G(0)"])
+        isnothing(offset) && (append!(column_names, ["Offset G(∞)"]))
+        append!(column_names, ["Anomolous exponent α"])
+        append!(column_names, ["Dynamic time $(i) (τ_dyn) [s]" for i in 1:m])
+        append!(column_names, ["Dynamic fraction $(i) (K_dyn)" for i in 1:m])
     elseif model_name === :fcs_3d
-        # base = 4 → τD, g0, offset, κ
-        m = _ndyn_from_len(L - 4)
-        isnothing(diffusivity) ? 
-        append!(column_names, ["Diffusion time τ_D [s]"]) : 
-        append!(column_names, ["Diffusion time τ_D [s]", "Beam width w_0 [m]"])
-
-        append!(column_names, [
-            "Current amplitude G(0)",
-            "Offset G(∞)",
-            "Structure factor κ",
-        ])
-        append!(column_names, ["Dynamic time $(i) (τ_dyn) [s]"      for i in 1:m])
-        append!(column_names, ["Dynamic fraction $(i) (K_dyn)"  for i in 1:m])
+        m = isnothing(offset) ? _ndyn_from_len(L - 4) : _ndyn_from_len(L - 3)
+        append!(column_names, ["Diffusion time τ_D [s]"])
+        !isnothing(diffusivity) && (append!(column_names, ["Beam width w_0 [m]"]))
+        append!(column_names, ["Current amplitude G(0)"])
+        isnothing(offset) && (append!(column_names, ["Offset G(∞)"]))
+        append!(column_names, ["Structure factor κ"])
+        append!(column_names, ["Dynamic time $(i) (τ_dyn) [s]" for i in 1:m])
+        append!(column_names, ["Dynamic fraction $(i) (K_dyn)" for i in 1:m])
     elseif model_name === :fcs_3d_mdiff
         isnothing(n_diff) && throw(ArgumentError("n_diff required for fcs_3d_mdiff"))
         n = n_diff
-        base = 2n + 3  # τDs[1:n], wts[1:n], g0, offset, κ
+        base = isnothing(offset) ? 2n + 3 : 2n + 2
         m = _ndyn_from_len(L - base)
 
-        append!(column_names, ["Diffusion time $(i) τ_D[$i] [s]"      for i in 1:n])
-        append!(column_names, ["Population fraction $(i) w[$i]"   for i in 1:n])
-        append!(column_names, [
-            "Current amplitude G(0)",
-            "Offset G(∞)",
-            "Structure factor κ",
-        ])
-        append!(column_names, ["Dynamic time $(i) (τ_dyn) [s]"      for i in 1:m])
-        append!(column_names, ["Dynamic fraction $(i) (K_dyn)"  for i in 1:m])
+        append!(column_names, ["Diffusion time $(i) τ_D[$i] [s]" for i in 1:n])
+        append!(column_names, ["Population fraction $(i) w[$i]" for i in 1:n])
+        append!(column_names, ["Current amplitude G(0)"])
+        isnothing(offset) && (append!(column_names, ["Offset G(∞)"]))
+        append!(column_names, ["Structure factor κ"])
+        append!(column_names, ["Dynamic time $(i) (τ_dyn) [s]" for i in 1:m])
+        append!(column_names, ["Dynamic fraction $(i) (K_dyn)" for i in 1:m])
     else
         return String[]
     end
@@ -243,9 +242,18 @@ function _fcs_plot(model::Function, ch::FCSChannel, θ0::AbstractVector,
     scatter!(top_ax, ch.τ, ch.G; markersize=10, color=color1,
              strokewidth=1, strokecolor=:black, alpha=0.7)
 
-    lines!(top_ax, ch.τ, model(ch.τ, fit.param .* scales;
-                               diffusivity = get(kwargs, :diffusivity, nothing));
-           linewidth=3, color=color2, alpha=0.9)
+    n_diff = get(kwargs, :n_diff, nothing)
+    isnothing(n_diff) ?       
+        lines!(top_ax, ch.τ, 
+               model(ch.τ, fit.param .* scales;
+                     diffusivity = get(kwargs, :diffusivity, nothing),
+                     offset = get(kwargs, :offset, nothing));
+               linewidth=3, color=color2, alpha=0.9) :
+        lines!(top_ax, ch.τ, 
+               model(ch.τ, fit.param .* scales; n_diff,
+                     diffusivity = get(kwargs, :diffusivity, nothing),
+                     offset = get(kwargs, :offset, nothing));
+               linewidth=3, color=color2, alpha=0.9)
 
     # Plot residuals on the bottom axis
     scatterlines!(bot_ax, ch.τ, fit.resid; color=color3,
@@ -293,7 +301,10 @@ function _fcs_plot(model::Function, ch::FCSChannel, θ0::AbstractVector,
     end
 
     scatter!(ax, ch.τ, ch.G; markersize=10, color=color1, strokewidth=1, strokecolor=:black, alpha=0.7)
-    lines!(ax, ch.τ, model(ch.τ, fit.param .* scales; diffusivity = get(kwargs, :diffusivity, nothing)); 
+    lines!(ax, ch.τ, model(ch.τ, fit.param .* scales; 
+                           diffusivity = get(kwargs, :diffusivity, nothing),
+                           n_diff = get(kwargs, :n_diff, nothing),
+                           offset = get(kwargs, :offset, nothing)); 
            linewidth=3, color=color2, alpha=0.9)
 
     return fig, fit, scales
@@ -320,7 +331,8 @@ Fit an FCS dataset and render a **parameter table** (with uncertainty and GoF).
 # Notes
 Calls `fcs_fit`, then the 2-argument `fcs_table(model, fit, scales; ...)`.
 """
-function fcs_table(model::Function, lag_times::AbstractVector, data::AbstractVector, θ0::AbstractVector; 
+function fcs_table(model::Function, lag_times::AbstractVector, 
+                   data::AbstractVector, θ0::AbstractVector; 
                    backend::Symbol=:html, kwargs...)
     fit, scales = fcs_fit(model, lag_times, data, θ0; kwargs...)
     fcs_table(model, fit, scales; backend)
@@ -359,13 +371,15 @@ assumes no uncertainty in `diffusivity`.
 """
 function fcs_table(model::Function, fit::LsqFit.LsqFitResult, scales::AbstractVector; 
                    backend::Symbol=:html, n_diff::Union{Nothing,Int}=nothing, 
-                   diffusivity::Union{Nothing, Real}=nothing, gof_metric::Function=bic)
+                   diffusivity::Union{Nothing, Real}=nothing, 
+                   offset::Union{Nothing, Real}=nothing,
+                   gof_metric::Function=bic)
     vals = parameters(fit, scales)
     errs = errors(fit, scales)
 
     mname = nameof(model)  # Symbol if model is a named function
     model_sym = mname isa Symbol ? mname : :unknown
-    parameter_list = infer_parameter_list(model_sym, vals; n_diff, diffusivity)
+    parameter_list = infer_parameter_list(model_sym, vals; n_diff, diffusivity, offset)
 
     if !isnothing(diffusivity) 
         insert!(vals, 1, τD(diffusivity, vals[1]))
