@@ -1,13 +1,36 @@
+"""
+    FCSChannel(name, τ, G, σ)
+
+A single correlation **channel** for FCS data.
+
+# Fields
+- `name::String` — Channel label (e.g., `"G_DD"`, `"G_DA"`, or `"G[1]"`).
+- `τ::Vector{Float64}` — Lag times in seconds (same length as `G`).
+- `G::Vector{Float64}` — Correlation values.
+- `σ::Union{Nothing,Vector{Float64}}` — Optional per-lag standard deviations (same length as `G` if present).
+
+# Notes
+All vectors are assumed to be aligned element-wise (`τ[i]` ↔ `G[i]` ↔ `σ[i]`).
+"""
 struct FCSChannel
     name::String                 # e.g. "G_DD" or "G_DA"
     τ::Vector{Float64}           # lag times (s)
     G::Vector{Float64}           # correlation values
     σ::Union{Nothing,Vector{Float64}}  # std dev per lag (optional)
 end
+"""
+    FCSData(channels, metadata, source)
 
+A container for **multi-channel** FCS data plus provenance.
+
+# Fields
+- `channels::Vector{FCSChannel}` — One or more correlation channels sharing a `τ` grid.
+- `metadata::Dict{String,Any}` — Arbitrary key-value info (sample, T, NA, λ, pinhole, detector, etc.).
+- `source::String` — Provenance string (e.g., file path or `"in-memory"`).
+"""
 struct FCSData
     channels::Vector{FCSChannel}
-    metadata::Dict{String,Any}   # sample, T, η, NA, λ, pinhole, detector, etc.
+    metadata::Dict{String,Any}   # sample, T, NA, λ, pinhole, detector, etc.
     source::String               # filepath or “in-memory”
 end
 
@@ -135,7 +158,25 @@ function infer_parameter_list(model_name::Symbol, params::AbstractVector;
 end
 
 """
-    fcs_plot(model::Function, ch, θ0, color1, color2, color3; residuals=true, kwargs...)
+    fcs_plot(model, ch, θ0; residuals=true, color1=:deepskyblue3, color2=:orangered2, color3=:steelblue4, kwargs...)
+
+Fit and plot an FCS channel with optional residuals.
+
+# Arguments
+- `model::Function` — Model with signature `model(τ, θ; diffusivity=nothing, ...) -> Ĝ`.
+- `ch::FCSChannel` — Data to fit.
+- `θ0::AbstractVector` — Initial parameter guess.
+
+# Keywords
+- `residuals::Bool=true` — Plot residuals panel if `true`.
+- `color1`, `color2`, `color3` — Colors for data, fit, residuals.
+- `kwargs...` — Passed to `fcs_fit` (e.g., `σ=ch.σ`, `diffusivity`, bounds, etc.).
+
+# Returns
+- `(fig::Makie.Figure, fit::LsqFit.LsqFitResult, scales::AbstractVector)`
+
+# Notes
+Delegates to the internal `_fcs_plot` methods. Uses log-scaled τ axis.
 """
 function fcs_plot(model::Function, ch::FCSChannel, θ0::AbstractVector; 
                   residuals::Bool=true, color1=:deepskyblue3, 
@@ -148,70 +189,136 @@ function fcs_plot(model::Function, ch::FCSChannel, θ0::AbstractVector;
 end
 
 """
-    _fcs_plot(model::Function, ch, θ0; fontsize=20, 
-              color1=:deepskyblue3, color2=:orangered2, color3=:steelblue4, kwargs...)
+    _fcs_plot(model, ch, θ0, color1, color2, color3; fig=nothing, fontsize=20, kwargs...)
 
-Fit FCS data with `model` using `fcs_fit` and generate a plot of the fit AND the residuals. 
+Internal: fit `ch` with `model` via `fcs_fit` and render **data + fit + residuals**.
+
+# Arguments
+- `model::Function`, `ch::FCSChannel`, `θ0::AbstractVector` — See `fcs_plot`.
+
+# Keywords
+- `color1`, `color2`, `color3` — Colors for scatter, fit, and residuals.
+- `fig::Union{Nothing,Makie.Figure}=nothing` — Reuse an existing figure if provided (first two axes are reused).
+- `fontsize::Int=20` — Base font size for the figure.
+- `kwargs...` — Forwarded to `fcs_fit` (e.g., `σ`, `diffusivity`, bounds, weights).
+
+# Returns
+- `(fig::Makie.Figure, fit::LsqFit.LsqFitResult, scales::AbstractVector)`
+
+# Notes
+Creates two stacked axes if no axes exist in `fig`: top = `G(τ)`, bottom = residuals.
 """
-function _fcs_plot(model::Function, ch::FCSChannel, θ0::AbstractVector, color1::Symbol, 
-                   color2::Symbol, color3::Symbol; fontsize::Int = 20, kwargs...)
+function _fcs_plot(model::Function, ch::FCSChannel, θ0::AbstractVector, 
+                   color1::Symbol, color2::Symbol, color3::Symbol; 
+                   fig::Union{Nothing,Makie.Figure}=nothing, 
+                   fontsize::Int = 20, kwargs...)
     fit, scales = fcs_fit(model, ch.τ, ch.G, θ0; σ = ch.σ, kwargs...)
 
-    fig = Figure(size=(700, 600), fontsize=fontsize)
+    # Create or reuse a figure
+    fig = isnothing(fig) ? Figure(size=(700, 600), fontsize=fontsize) : fig
 
-    # Top panel for main correlation fitting
-    Axis(fig[1,1];
-         xticklabelsvisible = false,
-         ylabel = L"\mathrm{Correlation} \; G(\tau)",
-         ytickformat = ys -> [L"%$(round(ys[i],sigdigits=2))" for i in eachindex(ys)],
-         xscale = log10, height = 400, width = 600)
+    # Find existing axes in the provided figure (in creation order)
+    axes_in_fig = [obj for obj in fig.content if obj isa Makie.Axis]
 
-    scatter!(ch.τ, ch.G; markersize=10, color=color1, strokewidth=1, strokecolor=:black, alpha=0.7)
-    lines!(ch.τ, model(ch.τ, fit.param .* scales; diffusivity = get(kwargs, :diffusivity, nothing)); 
+    if length(axes_in_fig) >= 2
+        # Reuse the first two axes (assumed top then bottom)
+        top_ax, bot_ax = axes_in_fig[1], axes_in_fig[2]
+    else
+        # Create missing axes (top: correlation; bottom: residuals)
+        top_ax = Axis(fig[1, 1];
+                      xticklabelsvisible = false,
+                      ylabel = L"\mathrm{Correlation}\;G(\tau)",
+                      ytickformat = ys -> [L"%$(round(ys[i], sigdigits=2))" for i in eachindex(ys)],
+                      xscale = log10, height = 400, width = 600)
+
+        bot_ax = Axis(fig[2, 1];
+                      xlabel = L"\mathrm{Logarithmic\ lag\ time}\; \log_{10}{\tau}",
+                      ylabel = L"\mathrm{Residuals}",
+                      xscale = log10, height = 100, width = 600,
+                      xtickformat = xs -> [L"%$(log10(xs[i]))" for i in eachindex(xs)],
+                      ytickformat = ys -> [L"%$(round(ys[i], sigdigits=2))" for i in eachindex(ys)])
+    end
+
+    # Plot data and fit on the top axis
+    scatter!(top_ax, ch.τ, ch.G; markersize=10, color=color1,
+             strokewidth=1, strokecolor=:black, alpha=0.7)
+
+    lines!(top_ax, ch.τ, model(ch.τ, fit.param .* scales;
+                               diffusivity = get(kwargs, :diffusivity, nothing));
            linewidth=3, color=color2, alpha=0.9)
 
-    # Bottom panel for residuals plot
-    Axis(fig[2,1];
-         xlabel = L"\mathrm{Logarithmic\ lag\ time}\; \log_{10}{\tau}",
-         ylabel = L"\mathrm{Residuals}",
-         xscale = log10, height = 100, width = 600,
-         xtickformat = xs -> [L"%$(log10(xs[i]))" for i in eachindex(xs)],
-         ytickformat = ys -> [L"%$(round(ys[i],sigdigits=2))" for i in eachindex(ys)])
-
-    scatterlines!(ch.τ, fit.resid; color=color3, markersize=5, strokewidth=1, alpha=0.7)
+    # Plot residuals on the bottom axis
+    scatterlines!(bot_ax, ch.τ, fit.resid; color=color3,
+                  markersize=5, strokewidth=1, alpha=0.7)
 
     return fig, fit, scales
 end
 """
-    _fcs_plot(model::Function, ch, θ0; fontsize=20, 
-              color1=:deepskyblue3, color2=:orangered2, kwargs...)
+    _fcs_plot(model, ch, θ0, color1, color2; fig=nothing, fontsize=20, kwargs...)
 
-Fit FCS data with `model` using `fcs_fit` and generate a plot of the fit WITHOUT the residuals. 
+Internal: fit `ch` with `model` via `fcs_fit` and render **data + fit** (no residuals).
+
+# Arguments
+- `model::Function`, `ch::FCSChannel`, `θ0::AbstractVector` — See `fcs_plot`.
+
+# Keywords
+- `color1`, `color2` — Colors for scatter and fit.
+- `fig::Union{Nothing,Makie.Figure}=nothing` — Reuse an existing figure if provided (first axis is reused).
+- `fontsize::Int=20` — Base font size for the figure.
+- `kwargs...` — Forwarded to `fcs_fit` (e.g., `σ`, `diffusivity`, bounds, weights).
+
+# Returns
+- `(fig::Makie.Figure, fit::LsqFit.LsqFitResult, scales::AbstractVector)`
+
+# Notes
+Creates a single log-τ axis if none exists in `fig`.
 """
-function _fcs_plot(model::Function, ch::FCSChannel, θ0::AbstractVector, color1::Symbol, 
-                   color2::Symbol; fontsize::Int = 20, kwargs...)
+function _fcs_plot(model::Function, ch::FCSChannel, θ0::AbstractVector, 
+                   color1::Symbol, color2::Symbol; fig::Union{Nothing,Makie.Figure}=nothing, 
+                   fontsize::Int = 20, kwargs...)
     fit, scales = fcs_fit(model, ch.τ, ch.G, θ0; σ = ch.σ, kwargs...)
 
-    fig = Figure(size=(700, 600), fontsize=fontsize)
+    fig = isnothing(fig) ? Figure(size=(700, 600), fontsize=fontsize) : fig
 
-    # Top panel for main correlation fitting
-    Axis(fig[1,1];
-         xticklabelsvisible = false,
-         ylabel = L"\mathrm{Correlation} \; G(\tau)",
-         ytickformat = ys -> [L"%$(round(ys[i],sigdigits=2))" for i in eachindex(ys)],
-         xscale = log10)
+    axes_in_fig = [obj for obj in fig.content if obj isa Makie.Axis]
 
-    scatter!(ch.τ, ch.G; markersize=10, color=color1, strokewidth=1, strokecolor=:black, alpha=0.7)
-    lines!(ch.τ, model(ch.τ, fit.param .* scales; diffusivity = get(kwargs, :diffusivity, nothing)); 
+    if length(axes_in_fig) >= 1
+        ax = axes_in_fig[1]
+    else
+        ax = Axis(fig[1,1];
+                 xticklabelsvisible = false,
+                 ylabel = L"\mathrm{Correlation} \; G(\tau)",
+                 ytickformat = ys -> [L"%$(round(ys[i],sigdigits=2))" for i in eachindex(ys)],
+                 xscale = log10)
+    end
+
+    scatter!(ax, ch.τ, ch.G; markersize=10, color=color1, strokewidth=1, strokecolor=:black, alpha=0.7)
+    lines!(ax, ch.τ, model(ch.τ, fit.param .* scales; diffusivity = get(kwargs, :diffusivity, nothing)); 
            linewidth=3, color=color2, alpha=0.9)
 
     return fig, fit, scales
 end
 
 """
-    fcs_table(model::Function, lag_times, data, θ0; backend::Symbol=:html, kwargs...)
+    fcs_table(model, lag_times, data, θ0; backend=:html, kwargs...)
 
-Fit FCS data with `model` using `fcs_fit` and generate a table of the fitted parameters and the goodness of fit, BIC.    
+Fit an FCS dataset and render a **parameter table** (with uncertainty and GoF).
+
+# Arguments
+- `model::Function` — Model with signature `model(τ, θ; ...) -> Ĝ`.
+- `lag_times::AbstractVector` — τ grid (s).
+- `data::AbstractVector` — Observed correlation values.
+- `θ0::AbstractVector` — Initial parameter guess.
+
+# Keywords
+- `backend::Symbol=:html` — `PrettyTables` backend (`:html`, `:unicode`, `:latex`, etc.).
+- `kwargs...` — Forwarded to `fcs_fit` (σ, bounds, etc.) and to the 2-arg `fcs_table` below.
+
+# Returns
+- The return value of `pretty_table(...)` after printing the table.
+
+# Notes
+Calls `fcs_fit`, then the 2-argument `fcs_table(model, fit, scales; ...)`.
 """
 function fcs_table(model::Function, lag_times::AbstractVector, data::AbstractVector, θ0::AbstractVector; 
                    backend::Symbol=:html, kwargs...)
@@ -220,9 +327,35 @@ function fcs_table(model::Function, lag_times::AbstractVector, data::AbstractVec
 end
 
 """
-    fcs_table(fit::LsqFit.LsqFitResult, scales::AbstractVector; backend::Symbol=:html)
+    fcs_table(model, fit, scales; backend=:html, n_diff=nothing, diffusivity=nothing, gof_metric=bic)
 
-Generate a table of the fitted parameters corresponding to an FCS `LsqFitResult`, `fit`, and the goodness of fit, BIC.    
+Render a **parameter table** from an `LsqFitResult`, including uncertainties and a goodness-of-fit metric.
+
+# Arguments
+- `model::Function` — Used to determine `model_name` for labeling.
+- `fit::LsqFit.LsqFitResult` — Result from `fcs_fit`.
+- `scales::AbstractVector` — Multiplicative scaling from fit space to physical space.
+
+# Keywords
+- `backend::Symbol=:html` — `PrettyTables` backend (`:html`, `:unicode`, `:latex`, etc.).
+- `n_diff::Union{Nothing,Int}` — Required for `*_mdiff` models to label multi-species parameters.
+- `diffusivity::Union{Nothing,Real}` — If provided, a derived `τ_D` is inserted for display (and its propagated error).
+- `gof_metric::Function=bic` — A function `gof_metric(fit)::Real` (e.g., `aic`, `aicc`, `bic`, `bicc`).
+
+# Output
+Prints a table with columns:
+- `"Parameters"` — Human-readable names from `infer_parameter_list(...)`,
+- `"Values"` — `parameters(fit, scales)`,
+- `"Std. Dev."` — `errors(fit, scales)`,
+
+and a source note with the chosen GoF metric.
+
+# Returns
+- The return value of `pretty_table(...)` after printing the table.
+
+# Notes
+If `diffusivity` is provided, `τ_D` is computed and inserted at the top; the simple error propagation
+assumes no uncertainty in `diffusivity`.
 """
 function fcs_table(model::Function, fit::LsqFit.LsqFitResult, scales::AbstractVector; 
                    backend::Symbol=:html, n_diff::Union{Nothing,Int}=nothing, 
@@ -257,24 +390,104 @@ function fcs_table(model::Function, fit::LsqFit.LsqFitResult, scales::AbstractVe
     )
 end
 
-# Some utility and goodness of fit functions
+
+
+"""
+    parameters(fit, scale) -> Vector
+
+Return **physical-space** parameter estimates as `fit.param .* scale`.
+
+# Arguments
+- `fit::LsqFit.LsqFitResult` — Nonlinear least-squares fit result.
+- `scale::AbstractVector` — Multiplicative scaling vector (same length as `fit.param`).
+
+# Returns
+- `Vector{Float64}` of scaled parameters.
+"""
 parameters(fit::LsqFit.LsqFitResult, scale) = fit.param .* scale
+
+"""
+    errors(fit, scale) -> Vector
+
+Return **standard deviations** of parameters in physical units: `stderror(fit) .* scale`.
+
+# Arguments
+- `fit::LsqFit.LsqFitResult` — Nonlinear least-squares fit result.
+- `scale::AbstractVector` — Multiplicative scaling vector (same length as `fit.param`).
+
+# Returns
+- `Vector{Float64}` of scaled standard errors.
+
+# Notes
+Relies on `LsqFit.stderror`; assumes a well-posed covariance estimate.
+"""
 errors(fit::LsqFit.LsqFitResult, scale) = stderror(fit) .* scale
+
+"""
+    aic(fit) -> Real
+
+Akaike Information Criterion for a least-squares fit.
+
+# Definition
+`AIC = 2k + N*log(σ²)`, where:
+- `k = length(coef(fit))` is the number of fitted parameters,
+- `N = nobs(fit)` is the number of observations,
+- `σ² = rss(fit)/N` is the residual variance estimate.
+
+# Returns
+- Lower is better (relative comparison across models on the same dataset).
+"""
 function aic(fit::LsqFit.LsqFitResult)
     k, N = length(coef(fit)), nobs(fit)
     σ2 = rss(fit) / N
     return 2k + N*log(σ2)
 end
+"""
+    aicc(fit) -> Real
+
+Small-sample corrected AIC.
+
+# Definition
+`AICc = AIC + (2k(k+1)) / (N - k - 1)`.
+
+# Returns
+- Recommended when `N / k` is modest.
+"""
 function aicc(fit::LsqFit.LsqFitResult)
     k, N = length(coef(fit)), nobs(fit)
     a = aic(fit)
     return a + (2k*(k+1)) / (N - k - 1)
 end
+"""
+    bic(fit) -> Real
+
+Bayesian Information Criterion for a least-squares fit.
+
+# Definition
+`BIC = k*log(N) + N*log(σ²)`, with
+- `k = length(coef(fit))`,
+- `N = nobs(fit)`,
+- `σ² = rss(fit)/N`.
+
+# Returns
+- Lower is better; BIC penalizes model complexity more strongly than AIC.
+"""
 function bic(fit::LsqFit.LsqFitResult)
     k, N = length(coef(fit)), nobs(fit)
     σ2 = rss(fit) / N
     return k*log(N) + N*log(σ2)
 end
+"""
+    bicc(fit) -> Real
+
+Bias-corrected BIC variant.
+
+# Definition
+`BICc = N*log(σ²) + N*k*log(N)/(N - k - 2)`.
+
+# Returns
+- A more conservative penalty when `N` is not ≫ `k`.
+"""
 function bicc(fit::LsqFit.LsqFitResult)
     k = length(coef(fit)); N = nobs(fit)
     σ2 = rss(fit) / N

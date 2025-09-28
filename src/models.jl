@@ -3,6 +3,10 @@
 Convert diffusion coefficient `D` and lateral waist `w0` to the lateral diffusion time τD.
 """
 @inline τD(D::Real, w0::Real) = w0^2 / (4D)
+"""
+    diffusivity(τD, w0)
+Convert diffusion time `τD` and beam waist `w0` to the diffusivity.
+"""
 @inline diffusivity(τD::Real, w0::Real) = w0^2 / (4τD)
 
 """
@@ -167,6 +171,7 @@ The parameters vector `p` should be organized as
 `ics` dictates the number of independent components for each dynamic contributor.
 `diffusivity` can be provided as a fixed parameter (e.g., for callibration), in which case
 `p[1]` is interpretted as the 1/e radius, w0.
+`offset` can similarly be fixed, in which case all of the above shift up by 1.
 
 
 # Examples
@@ -212,23 +217,38 @@ julia> fcs_2d(1e-6:1e-6:1e-5, [1e-3, 0.5, 0.0, 1e-4, 1e-6, 0.1, 0.1]; ics=[2])
 function fcs_2d(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real}; 
                 scales::Union{Nothing, AbstractVector}=nothing, 
                 ics::Union{Nothing, AbstractVector{Int}}=nothing,
-                diffusivity::Union{Nothing,Real}=nothing)
+                diffusivity::Union{Nothing,Real}=nothing,
+                offset::Union{Nothing,Real}=nothing)
     L = length(p)
     isnothing(scales) && (scales = ones(L))
     L == length(scales) || throw(ArgumentError("Scaling and parameter vector must be of the same length."))
-    L ≥ 3 || throw(ArgumentError("need at least 3 params: τD, g0, offset"))
+    
+    n_default_params::Int = isnothing(offset) ? 3 : 2
+    L ≥ n_default_params || throw(ArgumentError("Need at least $n_default_params input parameters"))
+
     scaled_p = scales .* p
 
-    m = _ndyn_from_len(L - 3)
+    m = _ndyn_from_len(L - n_default_params)
     isnothing(ics) && (ics = ones(Int, m))
     sum(ics) == m || throw(ArgumentError("The number of dynamic components must be consistent among the parameters `p` and `ics`."))
 
-    dyn = (m == 0) ? 1.0 : _dynamics_factor(t, @view(scaled_p[4:3+m]), @view(scaled_p[4+m:3+2m]), ics)
+    dyn = (m == 0) ? 1.0 : 
+        _dynamics_factor(t, @view(scaled_p[n_default_params+1:n_default_params+m]), 
+                         @view(scaled_p[n_default_params+1+m:n_default_params+2m]), ics)
+
     udc = isnothing(diffusivity) ? udc_2d(t, scaled_p[1]) : udc_2d(t, τD(diffusivity, scaled_p[1]))
     if t isa AbstractVector
-        @. scaled_p[3] + scaled_p[2] * udc * dyn
+        if isnothing(offset)
+            @. scaled_p[3] + scaled_p[2] * udc * dyn
+        else
+            @. offset + scaled_p[2] * udc * dyn
+        end
     else
-        scaled_p[3] + scaled_p[2] * udc * dyn
+        if isnothing(offset)
+            scaled_p[3] + scaled_p[2] * udc * dyn
+        else
+            @. offset + scaled_p[2] * udc * dyn
+        end
     end
 end
 
@@ -296,23 +316,40 @@ The parameters vector `p` should be organized as
 function fcs_2d_anom(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real}; 
                      scales::Union{Nothing, AbstractVector}=nothing, 
                      ics::Union{Nothing, AbstractVector{Int}}=nothing,
-                     diffusivity::Union{Nothing,Real}=nothing)
+                     diffusivity::Union{Nothing,Real}=nothing,
+                     offset::Union{Nothing,Real}=nothing)
     L = length(p)
     isnothing(scales) && (scales = ones(L))
+    
+    n_default_params::Int = isnothing(offset) ? 4 : 3
+    L ≥ n_default_params || throw(ArgumentError("Need at least $n_default_params input parameters."))
+
     L == length(scales) || throw(ArgumentError("Scaling and parameter vector must be of the same length."))
-    L ≥ 4 || throw(ArgumentError("need at least 4 params: τD, g0, offset, α"))
     scaled_p = scales .* p
 
-    m = _ndyn_from_len(L - 4)
+    m = _ndyn_from_len(L - n_default_params)
     isnothing(ics) && (ics = ones(Int, m))
     sum(ics) == m || throw(ArgumentError("The number of dynamic components must be consistent among the parameters `p` and `ics`."))
 
-    dyn = (m == 0) ? 1.0 : _dynamics_factor(t, @view(scaled_p[5:4+m]), @view(scaled_p[5+m:4+2m]), ics)
-    udc = isnothing(diffusivity) ? udc_2d_anom(t, scaled_p[1], scaled_p[4]) : udc_2d_anom(t, τD(diffusivity, scaled_p[1]), scaled_p[4])
+    dyn = (m == 0) ? 1.0 : 
+        _dynamics_factor(t, @view(scaled_p[n_default_params+1:n_default_params+m]), 
+                         @view(scaled_p[n_default_params+1+m:n_default_params+2m]), ics)
+
+    udc = isnothing(diffusivity) ? 
+        udc_2d_anom(t, scaled_p[1], scaled_p[n_default_params]) : 
+        udc_2d_anom(t, τD(diffusivity, scaled_p[1]), scaled_p[n_default_params])
     if t isa AbstractVector
-        @. scaled_p[3] + scaled_p[2] * udc * dyn
+        if isnothing(offset)
+            @. scaled_p[3] + scaled_p[2] * udc * dyn
+        else
+            @. offset + scaled_p[2] * udc * dyn
+        end
     else
-        scaled_p[3] + scaled_p[2] * udc * dyn
+        if isnothing(offset)
+            scaled_p[3] + scaled_p[2] * udc * dyn
+        else
+            @. offset + scaled_p[2] * udc * dyn
+        end
     end
 end
 
@@ -333,23 +370,40 @@ The parameters vector `p` should be organized as
 function fcs_3d(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real};
                 scales::Union{Nothing, AbstractVector}=nothing,
                 ics::Union{Nothing, AbstractVector{Int}}=nothing,
-                diffusivity::Union{Nothing,Real}=nothing)
+                diffusivity::Union{Nothing,Real}=nothing,
+                offset::Union{Nothing,Real}=nothing)
     L = length(p)
     isnothing(scales) && (scales = ones(L))
-    L ≥ 4 || throw(ArgumentError("need at least 4 params: τD, g0, offset, κ"))
+    
+    n_default_params::Int = isnothing(offset) ? 4 : 3
+    L ≥ n_default_params || throw(ArgumentError("Need at least $n_default_params input parameters."))
+
     L == length(scales) || throw(ArgumentError("Scaling and parameter vector must be of the same length."))
     scaled_p = scales .* p
 
-    m = _ndyn_from_len(L - 4)
+    m = _ndyn_from_len(L - n_default_params)
     isnothing(ics) && (ics = ones(Int, m))
     sum(ics) == m || throw(ArgumentError("The number of dynamic components must be consistent among the parameters `p` and `ics`."))
 
-    dyn = (m == 0) ? 1.0 : _dynamics_factor(t, @view(scaled_p[5:4+m]), @view(scaled_p[5+m:4+2m]), ics)
-    udc = isnothing(diffusivity) ? udc_3d(t, scaled_p[1], scaled_p[4]) : udc_3d(t, τD(diffusivity, scaled_p[1]), scaled_p[4])
+    dyn = (m == 0) ? 1.0 : 
+        _dynamics_factor(t, @view(scaled_p[n_default_params+1:n_default_params+m]), 
+                         @view(scaled_p[n_default_params+1+m:n_default_params+2m]), ics)
+
+    udc = isnothing(diffusivity) ? 
+        udc_3d(t, scaled_p[1], scaled_p[n_default_params]) : 
+        udc_3d(t, τD(diffusivity, scaled_p[1]), scaled_p[n_default_params])
     if t isa AbstractVector
-        @. scaled_p[3] + scaled_p[2] * udc * dyn
+        if isnothing(offset)
+            @. scaled_p[3] + scaled_p[2] * udc * dyn
+        else
+            @. offset + scaled_p[2] * udc * dyn
+        end
     else
-        scaled_p[3] + scaled_p[2] * udc * dyn
+        if isnothing(offset)
+            scaled_p[3] + scaled_p[2] * udc * dyn
+        else
+            @. offset + scaled_p[2] * udc * dyn
+        end
     end
 end
 
