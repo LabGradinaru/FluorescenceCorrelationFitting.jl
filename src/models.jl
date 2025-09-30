@@ -1,3 +1,5 @@
+const BOLTZMANN = 1.380649e-23 # Boltzmann constant in SI units
+
 """
     τD(D, w0)
 Convert diffusion coefficient `D` and lateral waist `w0` to the lateral diffusion time τD.
@@ -10,10 +12,26 @@ Convert diffusion time `τD` and beam waist `w0` to the diffusivity.
 @inline diffusivity(τD::Real, w0::Real) = w0^2 / (4τD)
 
 """
-    Veff(w0, z0)
+    volume(w0, z0)
 Calculate the effective volume from the measured FCS parameters.
 """
-@inline Veff(w0::Real, z0::Real) = π^(3/2) * w0^2 * z0
+@inline volume(w0::Real, z0::Real) = π^(3/2) * w0^2 * z0
+
+"""
+    hydrodynamic(τD, w0; T=293.0, η=1.0016e-3)
+Calculate the effective hydrodynamic radius of a molecule from its characteristic 
+diffusion time and beam waist using the Stokes-Einstein relation.
+"""
+@inline hydrodynamic(τD::Real, w0::Real; T::Real=293.0, η=1.0016e-3) =
+    hydrodynamic(diffusivity(τD, w0); T, η)
+"""
+    hydrodynamic(D; T=293.0, η=1.0016e-3)
+Calculate the effective hydrodynamic radius of a molecule from its diffusion
+coefficient using the Stokes-Einstein relation.
+"""
+@inline hydrodynamic(D::Real; T::Real=293.0, η=1.0016e-3) =
+    BOLTZMANN * T / (6π * η * D)
+
 
 # clamp into (ε, 1-ε) to keep fractions valid without NaNs/Infs in fits
 @inline function clamp01(x::T) where T
