@@ -1,3 +1,14 @@
+const SI_PREFIXES = Dict(
+    ""  => 1.0,
+    "d" => 1e1,
+    "c" => 1e2,
+    "m" => 1e3,
+    "μ" => 1e6,
+    "u" => 1e6,
+    "n" => 1e9,
+    "p" => 1e12
+)
+
 """
     FCSChannel(name, τ, G, σ)
 
@@ -311,34 +322,6 @@ function _fcs_plot(model::Function, ch::FCSChannel, θ0::AbstractVector,
 end
 
 """
-    fcs_table(model, lag_times, data, θ0; backend=:html, kwargs...)
-
-Fit an FCS dataset and render a **parameter table** (with uncertainty and GoF).
-
-# Arguments
-- `model::Function` — Model with signature `model(τ, θ; ...) -> Ĝ`.
-- `lag_times::AbstractVector` — τ grid (s).
-- `data::AbstractVector` — Observed correlation values.
-- `θ0::AbstractVector` — Initial parameter guess.
-
-# Keywords
-- `backend::Symbol=:html` — `PrettyTables` backend (`:html`, `:unicode`, `:latex`, etc.).
-- `kwargs...` — Forwarded to `fcs_fit` (σ, bounds, etc.) and to the 2-arg `fcs_table` below.
-
-# Returns
-- The return value of `pretty_table(...)` after printing the table.
-
-# Notes
-Calls `fcs_fit`, then the 2-argument `fcs_table(model, fit, scales; ...)`.
-"""
-function fcs_table(model::Function, lag_times::AbstractVector, 
-                   data::AbstractVector, θ0::AbstractVector; 
-                   backend::Symbol=:html, kwargs...)
-    fit, scales = fcs_fit(model, lag_times, data, θ0; kwargs...)
-    fcs_table(model, fit, scales; backend)
-end
-
-"""
     fcs_table(model, fit, scales; backend=:html, n_diff=nothing, diffusivity=nothing, gof_metric=bic)
 
 Render a **parameter table** from an `LsqFitResult`, including uncertainties and a goodness-of-fit metric.
@@ -351,8 +334,11 @@ Render a **parameter table** from an `LsqFitResult`, including uncertainties and
 # Keywords
 - `backend::Symbol=:html` — `PrettyTables` backend (`:html`, `:unicode`, `:latex`, etc.).
 - `n_diff::Union{Nothing,Int}` — Required for `*_mdiff` models to label multi-species parameters.
-- `diffusivity::Union{Nothing,Real}` — If provided, a derived `τ_D` is inserted for display (and its propagated error).
+- `diffusivity::Union{Nothing,Real}` — If provided, both `τ_D` and `w0` are displayed.
+- `offset::Union{Nothing,Real} — If provided, the offset is removed from the display.`
 - `gof_metric::Function=bic` — A function `gof_metric(fit)::Real` (e.g., `aic`, `aicc`, `bic`, `bicc`).
+- `units::Union{Nothing, AbstractVector{String}}` — If provided, rescales parameter values to the 
+                                                    corresponding SI prefix
 
 # Output
 Prints a table with columns:
@@ -373,23 +359,60 @@ function fcs_table(model::Function, fit::LsqFit.LsqFitResult, scales::AbstractVe
                    backend::Symbol=:html, n_diff::Union{Nothing,Int}=nothing, 
                    diffusivity::Union{Nothing, Real}=nothing, 
                    offset::Union{Nothing, Real}=nothing,
-                   gof_metric::Function=bic)
+                   gof_metric::Function=bic,
+                   units::Union{Nothing, AbstractVector{String}}=nothing)
+
     vals = parameters(fit, scales)
     errs = errors(fit, scales)
 
     mname = nameof(model)  # Symbol if model is a named function
     model_sym = mname isa Symbol ? mname : :unknown
+    
+    # Build parameter list (names) in the same order as values
     parameter_list = infer_parameter_list(model_sym, vals; n_diff, diffusivity, offset)
 
+    # If diffusivity is provided, insert τ_D (and its error) at the top
+    # Assumes no error in the diffusivity
     if !isnothing(diffusivity) 
         insert!(vals, 1, τD(diffusivity, vals[1]))
-        insert!(errs, 1, errs[1] * vals[1] / (2diffusivity)) #assuming no error in diffusivity
+        insert!(errs, 1, errs[1] * vals[1] / (2diffusivity))
     end
+    # Trim to the common length
     n = min(length(parameter_list), length(vals), length(errs))
-    data = hcat(parameter_list[1:n], vals[1:n], errs[1:n])
+    parameter_list = parameter_list[1:n]
+    vals = vals[1:n]
+    errs = errs[1:n]
 
+    # argument checks for SI prefix rescaling
+    (units === nothing) && (units = fill("",n))
+    length(units) < n && throw(ArgumentError("`units` length ($(length(units))) < number of displayed parameters ($n)."))
+    # Validate keys and build multipliers
+    bad = [u for u in units[1:n] if !haskey(SI_PREFIXES, u)]
+    !isempty(bad) && throw(ArgumentError("Unknown SI prefixes in `units`."))
+    # Apply scaling to values and errors
+    multipliers = getindex.(Ref(SI_PREFIXES), units[1:n])
+    @inbounds for i in 1:n
+        vals[i] *= multipliers[i]
+        errs[i] *= multipliers[i]
+    end
+    # Decorate displayed unit labels with the chosen prefix where present.
+    # We only touch simple base units [s] and [m]; leave anything else as-is.
+    @inbounds for i in 1:n
+        u = units[i]
+        if u != ""
+            # Add prefix before the base symbol when found.
+            # e.g. "[s]" -> "[μs]" and "[m]" -> "[nm]".
+            parameter_list[i] = replace(parameter_list[i],
+                "[s]" => "[" * u * "s]",
+                "[m]" => "[" * u * "m]",
+            )
+        end
+    end
+
+    data = hcat(parameter_list, vals, errs)
+    # evaluate goodness of fit metric and add it to the table
     gof_val = gof_metric(fit)
-    gof_line = " $(nameof(gof_metric)) " * @sprintf("= %.5g ", gof_val)
+    gof_line = " $(nameof(gof_metric)) " * @sprintf("= %.6g ", gof_val)
 
     column_labels = ["Parameters", "Values", "Std. Dev."]
 
@@ -403,7 +426,6 @@ function fcs_table(model::Function, fit::LsqFit.LsqFitResult, scales::AbstractVe
         formatters = [(v,i,j)->(j ∈ (2,3) && v isa Number ? @sprintf("%.4g", v) : v)]
     )
 end
-
 
 
 """
