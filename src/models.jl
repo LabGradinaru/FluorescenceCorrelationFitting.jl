@@ -22,16 +22,24 @@ Calculate the effective volume from the measured FCS parameters.
 Calculate the effective hydrodynamic radius of a molecule from its characteristic 
 diffusion time and beam waist using the Stokes-Einstein relation.
 """
-@inline hydrodynamic(τD::Real, w0::Real; T::Real=293.0, η=1.0016e-3) =
-    hydrodynamic(diffusivity(τD, w0); T, η)
+@inline hydrodynamic(τD::Real, w0::Real; kwargs...) =
+    hydrodynamic(diffusivity(τD, w0); kwargs...)
 """
-    hydrodynamic(D; T=293.0, η=1.0016e-3)
+    hydrodynamic(D; T=293.0, η=1.0016e-3, D_err=nothing)
 Calculate the effective hydrodynamic radius of a molecule from its diffusion
 coefficient using the Stokes-Einstein relation.
-"""
-@inline hydrodynamic(D::Real; T::Real=293.0, η=1.0016e-3) =
-    BOLTZMANN * T / (6π * η * D)
 
+If an error in the diffusivity is provided, returns the error
+"""
+@inline function hydrodynamic(D::Real; T::Real=293.0, η=1.0016e-3, 
+                              D_err::Union{Nothing,Real}=nothing)
+    _scale = BOLTZMANN * T / (6π * η)
+    if isnothing(D_err)
+        _scale / D
+    else
+        _scale / D, _scale * D_err / D^2
+    end
+end
 
 # clamp into (ε, 1-ε) to keep fractions valid without NaNs/Infs in fits
 @inline function clamp01(x::T) where T
