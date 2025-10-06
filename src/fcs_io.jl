@@ -311,11 +311,18 @@ function _fcs_plot(model::Function, ch::FCSChannel, θ0::AbstractVector,
     end
 
     scatter!(ax, ch.τ, ch.G; markersize=10, color=color1, strokewidth=1, strokecolor=:black, alpha=0.7)
-    lines!(ax, ch.τ, model(ch.τ, fit.param .* scales; 
-                           diffusivity = get(kwargs, :diffusivity, nothing), # TODO: This should be n_diff-dependent
-                           n_diff = get(kwargs, :n_diff, nothing),
-                           offset = get(kwargs, :offset, nothing)); 
-           linewidth=3, color=color2, alpha=0.9)
+
+    n_diff = get(kwargs, :n_diff, nothing)
+    isnothing(n_diff) ?       
+        lines!(ax, ch.τ, 
+               model(ch.τ, fit.param .* scales;
+                     diffusivity = get(kwargs, :diffusivity, nothing),
+                     offset = get(kwargs, :offset, nothing));
+               linewidth=3, color=color2, alpha=0.9) :
+        lines!(ax, ch.τ, 
+               model(ch.τ, fit.param .* scales; n_diff,
+                     offset = get(kwargs, :offset, nothing));
+               linewidth=3, color=color2, alpha=0.9)
 
     return fig, fit, scales
 end

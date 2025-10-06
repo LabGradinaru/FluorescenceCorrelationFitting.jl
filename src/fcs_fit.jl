@@ -111,7 +111,7 @@ function fcs_fit(model::Function, lag_times::AbstractVector,
                  n_diff::Union{Nothing,Int}=nothing,
                  scales::Union{Nothing,AbstractVector}=nothing,
                  ics::Union{Nothing,AbstractVector{Int}}=nothing,
-                 diffusivity::Union{Nothing,Real}=nothing, #TODO: this should be controlled based on n_diff
+                 diffusivity::Union{Nothing,Real}=nothing,
                  offset::Union{Nothing,Real}=nothing,
                  zero_sub::Real=1.0, kwargs...)
     # consistency checks
