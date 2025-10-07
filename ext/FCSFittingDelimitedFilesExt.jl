@@ -1,4 +1,4 @@
-module FCSFittingDelimitedFiles
+module FCSFittingDelimitedFilesExt
 
 using DelimitedFiles
 import FCSFitting: FCSChannel, FCSData, read_fcs

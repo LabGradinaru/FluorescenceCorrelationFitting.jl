@@ -1,7 +1,9 @@
 module FCSFittingPrettyTablesExt
 
 using PrettyTables
+using LsqFit
 import FCSFitting: sig_str, fcs_table
+
 
 """
     fcs_table(model, fit, scales; backend=:html, n_diff=nothing, diffusivity=nothing, gof_metric=bic)

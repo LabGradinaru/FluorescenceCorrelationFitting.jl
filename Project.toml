@@ -14,7 +14,7 @@ PrettyTables = "08abe8d2-0d0c-5749-adfa-8a2ac140af0d"
 
 [extensions]
 FCSFittingDelimitedFilesExt = ["DelimitedFiles"]
-FCSFittingMakieExt = ["CairoMakie", "LaTeXStrings"]
+FCSFittingCairoMakieExt = ["CairoMakie", "LaTeXStrings"]
 FCSFittingPrettyTablesExt = ["PrettyTables"]
 
 [compat]

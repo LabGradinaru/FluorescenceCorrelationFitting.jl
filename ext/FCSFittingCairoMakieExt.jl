@@ -1,8 +1,9 @@
 module FCSFittingCairoMakieExt
 
 using CairoMakie
+using LsqFit
 using LaTeXStrings
-import FCSFitting: _fcs_plot, resid_acf_plot, fcs_fit
+import FCSFitting: FCSChannel, _fcs_plot, resid_acf_plot, fcs_fit, acf
 
 
 """
