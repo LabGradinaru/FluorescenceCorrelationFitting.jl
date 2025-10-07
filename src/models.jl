@@ -71,6 +71,7 @@ end
 function _dynamics_factor(t, τs::AbstractVector, Ks::AbstractVector, ics::AbstractVector{Int})
     length(τs) == length(Ks) || throw(ArgumentError("τs and Ks must have same length"))
     sum(ics) == length(τs) || throw(ArgumentError("The number of components must match τs and Ks"))
+    sum(Ks) > 1 && _normalize_weights(sum(Ks)) # the total weight ascribed to dynamic factors must be less than or equal to 1
 
     if isempty(τs)
         return t isa AbstractVector ?
@@ -116,20 +117,20 @@ end
 
 # sum_i w_i * kernel(t, param_i), for t scalar or vector
 function _mdiff(t, params::AbstractVector, weights::AbstractVector, kernel::Function)
-    length(params) == length(weights) || throw(ArgumentError("params and weights must have same length"))
-    w = _normalize_weights(weights)
+    length(params) == length(weights) + 1 || throw(ArgumentError("There must be one less weight than there are parameters"))
+    ws = hcat(weights, [1 - sum(weights)])
     if t isa AbstractVector
-        T = promote_type(eltype(t), eltype(params), eltype(weights))
+        T = promote_type(eltype(t), eltype(params), eltype(ws))
         out = zeros(T, length(t))
         @inbounds for i in eachindex(params)
-            @. out += T(w[i]) * kernel(t, T(params[i]))
+            @. out += T(ws[i]) * kernel(t, T(params[i]))
         end
         return out
     else
-        T = promote_type(typeof(t), eltype(params), eltype(weights))
+        T = promote_type(typeof(t), eltype(params), eltype(ws))
         s = zero(T)
         @inbounds for i in eachindex(params)
-            s += T(w[i]) * kernel(T(t), T(params[i]))
+            s += T(ws[i]) * kernel(T(t), T(params[i]))
         end
         return s
     end
@@ -286,11 +287,12 @@ Mixture of `n` 2D diffusion components with weights that are normalized internal
 The parameters vector `p` should be organized as
 
 *   `p[1:n]` → τDs; the diffusion times of each diffuser
-*   `p[n+1:2n]` → weights: the fraction of diffuser in each population
-*   `p[2n+1]` → g0; the zero-lag autocorrelation
-*   `p[2n+2]` → offset; the offset of the correlation from 0
-*   `p[2n+3:2n+2+m]` → τ_dyn; the dynamic lifetimes
-*   `p[2n+3+m:end]` → K_dyn; the fraction corresponding of the population corresponding to the dynamic lifetime
+*   `p[n+1:2n-1]` → weights; the fraction of diffuser in the first n-1 populations.
+                    sum of weights constrained by unity so only n-1 dof are required
+*   `p[2n]` → g0; the zero-lag autocorrelation
+*   `p[2n+1]` → offset; the offset of the correlation from 0
+*   `p[2n+2:2n+1+m]` → τ_dyn; the dynamic lifetimes
+*   `p[2n+2+m:end]` → K_dyn; the fraction corresponding of the population corresponding to the dynamic lifetime
 """
 function fcs_2d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real};
                       n_diff::Integer=1, scales::Union{Nothing,AbstractVector}=nothing,
@@ -302,7 +304,7 @@ function fcs_2d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<
     L == length(scales) || throw(ArgumentError("Scaling and parameter vector must be of the same length."))
 
     n = n_diff
-    base = isnothing(offset) ? 2n + 2 : 2n + 1
+    base = isnothing(offset) ? 2n + 1 : 2n
     L ≥ base || throw(ArgumentError("p too short for n_diff=$n (need ≥ $(base))"))
 
     scaled_p = scales .* p
@@ -311,8 +313,9 @@ function fcs_2d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<
     sum(ics) == m || throw(ArgumentError("The number of dynamic components must be consistent among the parameters `p` and `ics`."))
 
     τDs = @view scaled_p[1:n]
-    wts = @view scaled_p[n+1:2n]
-    g0 = scaled_p[2n+1]
+    wts = @view scaled_p[n+1:2n-1]
+    sum(wts) ≤ 1 || throw(ArgumentError("The sum of weights of all diffusive populations must not exceed unity."))
+    g0 = scaled_p[2n]
     τdyn = m == 0 ? Float64[] : collect(@view scaled_p[base+1 : base+m])
     Kdyn = m == 0 ? Float64[] : collect(@view scaled_p[base+m+1 : base+2m])
 
@@ -320,13 +323,13 @@ function fcs_2d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<
     mix = _mdiff(t, τDs, wts, (tt,τ)->udc_2d(tt,τ))
     if t isa AbstractVector
         if isnothing(offset)
-            @. scaled_p[2n+2] + g0 * mix * dyn
+            @. scaled_p[2n+1] + g0 * mix * dyn
         else
             @. offset + g0 * mix * dyn
         end
     else
         if isnothing(offset)
-            scaled_p[2n+2] + g0 * mix * dyn
+            scaled_p[2n+1] + g0 * mix * dyn
         else
             offset + g0 * mix * dyn
         end
@@ -448,12 +451,13 @@ end
 Mixture of `n` 3D diffusion components sharing the same structure factor `κ`.
 
 *   `p[1:n]` → τDs; the diffusion times of each diffuser
-*   `p[n+1:2n]` → weights: the fraction of diffuser in each population
-*   `p[2n+1]` → g0; the zero-lag autocorrelation
-*   `p[2n+2]` → offset; the offset of the correlation from 0
-*   `p[2n+3]` → κ; the structure factor `κ = z0/w0`
-*   `p[2n+3:2n+2+m]` → τ_dyn; the dynamic lifetimes
-*   `p[2n+3+m:end]` → K_dyn; the fraction corresponding of the population corresponding to the dynamic lifetime
+*   `p[n+1:2n-1]` → weights; the fraction of diffuser in the first n-1 populations.
+                    sum of weights constrained by unity so only n-1 dof are required
+*   `p[2n]` → g0; the zero-lag autocorrelation
+*   `p[2n+1]` → offset; the offset of the correlation from 0
+*   `p[2n+2]` → κ; the structure factor `κ = z0/w0`
+*   `p[2n+2:2n+2+m]` → τ_dyn; the dynamic lifetimes
+*   `p[2n+2+m:end]` → K_dyn; the fraction corresponding of the population corresponding to the dynamic lifetime
 """
 function fcs_3d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real};
                       n_diff::Integer=1, scales::Union{Nothing,AbstractVector}=nothing,
@@ -465,7 +469,7 @@ function fcs_3d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<
     L == length(scales) || throw(ArgumentError("Scaling and parameter vector must be of the same length."))
 
     n = n_diff
-    base = isnothing(offset) ? 2n + 3 : 2n + 2
+    base = isnothing(offset) ? 2n + 2 : 2n + 1
     L ≥ base || throw(ArgumentError("p too short for n_diff=$n (need ≥ $(base))"))
 
     scaled_p = scales .* p
@@ -474,8 +478,9 @@ function fcs_3d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<
     sum(ics) == m || throw(ArgumentError("The number of dynamic components must be consistent among the parameters `p` and `ics`."))
 
     τDs = @view scaled_p[1:n]
-    wts = @view scaled_p[n+1:2n]
-    g0 = scaled_p[2n+1]
+    wts = @view scaled_p[n+1:2n-1]
+    sum(wts) ≤ 1 || throw(ArgumentError("The sum of weights of all diffusive populations must not exceed unity."))
+    g0 = scaled_p[2n]
     s = scaled_p[base]
     τdyn = m == 0 ? Float64[] : collect(@view scaled_p[base+1 : base+m])       # 2n+4 : 2n+3+m
     Kdyn = m == 0 ? Float64[] : collect(@view scaled_p[base+m+1 : base+2m])    # 2n+4+m : 2n+3+2m
@@ -484,13 +489,13 @@ function fcs_3d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<
     mix = _mdiff(t, τDs, wts, (tt,τ)->udc_3d(tt, τ, s))
     if t isa AbstractVector
         if isnothing(offset)
-            @. scaled_p[2n+2] + g0 * mix * dyn
+            @. scaled_p[2n+1] + g0 * mix * dyn
         else
             @. offset + g0 * mix * dyn
         end
     else
         if isnothing(offset)
-            scaled_p[2n+2] + g0 * mix * dyn
+            scaled_p[2n+1] + g0 * mix * dyn
         else
             offset + g0 * mix * dyn
         end
