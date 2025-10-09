@@ -18,7 +18,7 @@ FCSFittingCairoMakieExt = ["CairoMakie", "LaTeXStrings"]
 FCSFittingPrettyTablesExt = ["PrettyTables"]
 
 [compat]
-CairoMakie = "0.12"
-DelimitedFiles = "1.9.1"
-LaTeXStrings = "1.4.0"
+CairoMakie = "0.12, 0.13, 0.14, 0.15"
+DelimitedFiles = "1"
+LaTeXStrings = "1"
 PrettyTables = "3"
