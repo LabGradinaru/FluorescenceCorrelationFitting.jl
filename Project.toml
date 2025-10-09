@@ -1,19 +1,24 @@
 name = "FCSFitting"
 uuid = "4b8222f9-91d6-4fc3-8988-c3d342909eae"
 authors = ["Aiyan Brown <aiyan.brown@mail.utoronto.ca>"]
-version = "0.2.0"
+version = "0.3.0"
 
 [deps]
-CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+LsqFit = "2fda8390-95c7-5789-9bda-21331edee243"
+
+[weakdeps]
 DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
-LsqFit = "2fda8390-95c7-5789-9bda-21331edee243"
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
 PrettyTables = "08abe8d2-0d0c-5749-adfa-8a2ac140af0d"
-Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+
+[extensions]
+FCSFittingDelimitedFilesExt = ["DelimitedFiles"]
+FCSFittingCairoMakieExt = ["CairoMakie", "LaTeXStrings"]
+FCSFittingPrettyTablesExt = ["PrettyTables"]
 
 [compat]
-CairoMakie = "0.12.9"
+CairoMakie = "0.12"
 DelimitedFiles = "1.9.1"
 LaTeXStrings = "1.4.0"
-PrettyTables = "3.0.8"
-Printf = "1.11.0"
+PrettyTables = "3"

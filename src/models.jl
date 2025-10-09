@@ -1,6 +1,7 @@
 const BOLTZMANN = 1.380649e-23 # Boltzmann constant in SI units
 const AVAGADROS = 6.022141e23 # Avagadro's number in SI units
 
+
 """
     τD(D, w0)
 Convert diffusion coefficient `D` and lateral waist `w0` to the lateral diffusion time τD.

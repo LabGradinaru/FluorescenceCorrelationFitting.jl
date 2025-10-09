@@ -7,15 +7,10 @@ export FCSChannel, FCSData, read_fcs,
        fcs_3d_mdiff, fcs_2d_anom
 
 using LsqFit
-using LaTeXStrings
-using CairoMakie
-using PrettyTables
-using Printf
-using DelimitedFiles
 
 include("models.jl")
 include("fcs_fit.jl")
 include("gof.jl")
-include("fcs_io.jl")
+include("io_utils.jl")
 
 end #module
