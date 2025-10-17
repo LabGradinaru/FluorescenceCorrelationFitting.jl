@@ -143,9 +143,9 @@ ww_test(fit::LsqFit.LsqFitResult; drop_zeros::Bool=true) =
 """
     _count_runs(s)
 
-Count runs in a sign vector of ±1. Zeros should be removed before calling.
+Count runs of consecutive values in a vector.
 """
-function _count_runs(s::AbstractVector{<:Integer})
+function _count_runs(s::AbstractVector)
     @inbounds begin
         R = 1
         prev = s[1]
