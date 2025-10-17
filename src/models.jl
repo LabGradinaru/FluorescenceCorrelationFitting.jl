@@ -434,9 +434,9 @@ function fcs_2d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<
     sp = scales .* p
 
     τDs = collect(@view sp[base+1:base+n_diff])
-    w_end = base + n + (n > 1 ? (n-1) : 0)
-    wts = (n == 1) ? Float64[] : collect(@view sp[base+n+1 : w_end])
-    (n == 1 || sum(wts) ≤ 1) || throw(ArgumentError("Sum of weights must be ≤ 1"))
+    w_end = base + n_diff + (n_diff > 1 ? (n-1) : 0)
+    wts = (n_diff == 1) ? Float64[] : collect(@view sp[base+n_diff+1 : w_end])
+    (n_diff == 1 || sum(wts) ≤ 1) || throw(ArgumentError("Sum of weights must be ≤ 1"))
     
     m = _ndyn_from_len(L - w_end)
     isnothing(ics) && (ics = ones(Int, m))
@@ -633,16 +633,16 @@ function fcs_3d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<
     L == length(scales) || throw(ArgumentError("Scaling and parameter vector must be of the same length."))
 
     base = isnothing(offset) ? 3 : 2 # base includes: g0, (offset), κ
-    L ≥ base + n || throw(ArgumentError("p too short for $n_diff diffusion times"))
+    L ≥ base + n_diff || throw(ArgumentError("p too short for $n_diff diffusion times"))
     sp = scales .* p
 
     # diffusion
     τDs = collect(@view sp[base+1:base+n_diff])
     diff_idx = base+2n_diff-1
     
-    w_end = base + n + (n > 1 ? (n-1) : 0)
-    wts = (n == 1) ? Float64[] : collect(@view sp[base+n+1 : w_end])
-    (n == 1 || sum(wts) ≤ 1) || throw(ArgumentError("Sum of weights must be ≤ 1."))
+    w_end = base + n_diff + (n_diff > 1 ? (n_diff-1) : 0)
+    wts = (n_diff == 1) ? Float64[] : collect(@view sp[base+n_diff+1:w_end])
+    (n_diff == 1 || sum(wts) ≤ 1) || throw(ArgumentError("Sum of weights must be ≤ 1."))
 
     # dynamics
     m = _ndyn_from_len(L - w_end)
