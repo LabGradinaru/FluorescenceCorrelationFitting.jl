@@ -2,6 +2,7 @@ module FCSFittingPrettyTablesExt
 
 using PrettyTables
 using LsqFit
+
 import FCSFitting: sigstr, fcs_table, infer_parameter_list, 
                    τD, parameters, errors, SI_PREFIXES, aic, 
                    aicc, bic, bicc, chi_squared, ljung_box, ww_test
@@ -57,12 +58,6 @@ function fcs_table(model::Function, fit::LsqFit.LsqFitResult, scales::AbstractVe
     # Build parameter list (names) in the same order as values
     parameter_list = infer_parameter_list(model_sym, vals; n_diff, diffusivity, offset)
 
-    # If diffusivity is provided, insert τ_D (and its error) at the top
-    # Assumes no error in the diffusivity
-    if !isnothing(diffusivity) 
-        insert!(vals, 1, τD(diffusivity, vals[1]))
-        insert!(errs, 1, errs[1] * vals[1] / (2diffusivity))
-    end
     # Trim to the common length
     n = min(length(parameter_list), length(vals), length(errs))
     parameter_list = parameter_list[1:n]

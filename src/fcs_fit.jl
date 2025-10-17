@@ -22,50 +22,84 @@ function log_lags(n_points::Int, τmin::Int, τmax::Int)
 end
 
 """
-    infer_noscale_indices(model_name::Symbol, p0::AbstractVector; n_diff::Union{Nothing,Int}=nothing)
+    infer_noscale_indices(model_name::Symbol, p0::AbstractVector;
+                          n_diff::Union{Nothing,Int}=nothing,
+                          offset::Union{Nothing,Real}=nothing) -> Vector{Int}
 
-Return indices of the parameter vector that should NOT be scaled (kept at scale 1):
-- Mixture weights
-- K_dyn fractions
+Return 1-based indices in `p0` that should NOT be scaled (kept at scale 1):
+- Mixture weights (for `*_mdiff` models)
+- Dynamic fractions `K_dyn`
+
+This reflects the **parameter orderings**:
+- `fcs_2d`           : [g0, offset?, τD, τ_dyn..., K_dyn...]
+- `fcs_2d_mdiff`     : [g0, offset?, τD[1:n], w[1:n-1], τ_dyn..., K_dyn...]
+- `fcs_2d_anom`      : [g0, offset?, τD, α, τ_dyn..., K_dyn...]
+- `fcs_2d_anom_mdiff`: [g0, offset?, τD[1:n], α[1:n], w[1:n-1], τ_dyn..., K_dyn...]
+- `fcs_3d`           : [g0, offset?, κ, τD, τ_dyn..., K_dyn...]
+- `fcs_3d_mdiff`     : [g0, offset?, κ, τD[1:n], w[1:n-1], τ_dyn..., K_dyn...]
 """
-function infer_noscale_indices(model_name::Symbol, p0::AbstractVector; 
+function infer_noscale_indices(model_name::Symbol, p0::AbstractVector;
                                n_diff::Union{Nothing,Int}=nothing,
                                offset::Union{Nothing,Real}=nothing)
     L = length(p0)
     if model_name === :fcs_2d
+        # base (up to τD): g0, (offset), τD
         base = isnothing(offset) ? 3 : 2
         m = _ndyn_from_len(L - base)
-        return m == 0 ? Int[] : collect((base+m+1):(base+2m))
+        return m == 0 ? Int[] : collect(base + m + 1 : base + 2m)
+
     elseif model_name === :fcs_2d_mdiff
         isnothing(n_diff) && throw(ArgumentError("n_diff required for fcs_2d_mdiff"))
-        n = n_diff
-        base = isnothing(offset) ? 2n + 2 : 2n + 1
-        m = _ndyn_from_len(L - base)
+        base0 = isnothing(offset) ? 2 : 1
+        τ_end = base0 + n_diff
+        w_start = τ_end + 1
+        w_end = w_start + (n_diff > 1 ? (n_diff - 1) : 0) - 1
+        diff_idx = max(τ_end, w_end)
+
+        m = _ndyn_from_len(L - diff_idx)
         idx = Int[]
-        append!(idx, collect((n+1):(2n)))
-        if m > 0
-            append!(idx, collect((base+m+1):(base+2m)))
-        end
+        n_diff > 1 && append!(idx, collect(w_start:w_end))
+        m > 0 && append!(idx, collect(diff_idx + m + 1 : diff_idx + 2m))
         return idx
+
     elseif (model_name === :fcs_3d) || (model_name === :fcs_2d_anom)
         base = isnothing(offset) ? 4 : 3
         m = _ndyn_from_len(L - base)
-        return m == 0 ? Int[] : collect((base+m+1):(base+2m))
+        return m == 0 ? Int[] : collect(base + m + 1 : base + 2m)
+
+    elseif model_name === :fcs_2d_anom_mdiff
+        isnothing(n_diff) && throw(ArgumentError("n_diff required for fcs_2d_anom_mdiff"))
+        base0 = isnothing(offset) ? 2 : 1
+        τ_end = base0 + n_diff
+        α_end = τ_end + n_diff
+        w_end = α_end + (n_diff > 1 ? (n_diff - 1) : 0)
+        diff_idx = max(α_end, w_end)
+
+        m = _ndyn_from_len(L - diff_idx)
+        idx = Int[]
+        n_diff > 1 && append!(idx, collect(α_end+1:w_end))
+        m > 0 && append!(idx, collect(diff_idx + m + 1 : diff_idx + 2m))
+        return idx
+
     elseif model_name === :fcs_3d_mdiff
         isnothing(n_diff) && throw(ArgumentError("n_diff required for fcs_3d_mdiff"))
-        n = n_diff
-        base = isnothing(offset) ? 2n + 3 : 2n + 2
-        m = _ndyn_from_len(L - base)
+        base0 = isnothing(offset) ? 3 : 2
+        τ_end = base0 + n_diff
+        w_start = τ_end + 1
+        w_end   = w_start + (n_diff > 1 ? (n_diff - 1) : 0) - 1
+        diff_idx = max(τ_end, w_end)
+
+        m = _ndyn_from_len(L - diff_idx)
         idx = Int[]
-        append!(idx, collect((n+1):(2n)))
-        if m > 0
-            append!(idx, collect((base+m+1):(base+2m)))
-        end
+        n_diff > 1 && append!(idx, collect(w_start:w_end))
+        m > 0 && append!(idx, collect(diff_idx + m + 1 : diff_idx + 2m))
         return idx
+
     else
         return Int[]
     end
 end
+
 
 """
     build_scales_from_p0(p0; noscale_idx=Int[], zero_sub=1.0)
@@ -75,7 +109,9 @@ Construct a scale vector so that, ideally, θ0 = ones and p = scales .* θ repro
 - For zero p0 entries, use `zero_sub` to avoid zero scale; θ0 at those indices becomes p0/zero_sub (often 0).
 Returns (θ0, scales).
 """
-function build_scales_from_p0(p0::AbstractVector{<:Real}; noscale_idx::AbstractVector{<:Integer}=Int[], zero_sub::Real=1.0)
+function build_scales_from_p0(p0::AbstractVector{<:Real}; 
+                              noscale_idx::AbstractVector{<:Integer}=Int[], 
+                              zero_sub::Real=1.0)
     L = length(p0)
     s = similar(p0, Float64)
     @inbounds for i in 1:L
@@ -157,13 +193,13 @@ function fcs_fit(model::Function, lag_times::AbstractVector,
     # Fitting
     x = collect(lag_times)
     fit = if (lowerθ !== nothing) && (upperθ !== nothing)
-        curve_fit(model2, x, corr_data, θ0; lower = lowerθ, upper = upperθ, filtered_kwargs...) 
+        curve_fit(model2, x, corr_data, wt, θ0; lower = lowerθ, upper = upperθ, filtered_kwargs...) 
     elseif (lowerθ !== nothing)
         curve_fit(model2, x, corr_data, wt, θ0; lower = lowerθ, filtered_kwargs...)
     elseif (upperθ !== nothing)
         curve_fit(model2, x, corr_data, wt, θ0; upper = upperθ, filtered_kwargs...)
     else
-        curve_fit(model2, x, y, θ0; filtered_kwargs...)
+        curve_fit(model2, x, corr_data, wt, θ0; filtered_kwargs...)
     end
 
     return fit, scales_

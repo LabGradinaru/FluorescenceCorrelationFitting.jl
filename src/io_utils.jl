@@ -61,64 +61,73 @@ function infer_parameter_list(model_name::Symbol, params::AbstractVector;
                               diffusivity::Union{Nothing,Real}=nothing,
                               offset::Union{Nothing,Real}=nothing)
     L = length(params)
-    column_names = String[]
+    names = String[]
+
+    _m_from = base_len -> _ndyn_from_len(L - base_len)
+
+    push!(names, "Current amplitude G(0)")
+    isnothing(offset) && push!(names, "Offset G(∞)")
 
     if model_name === :fcs_2d
-        m = isnothing(offset) ? _ndyn_from_len(L - 3) : _ndyn_from_len(L - 2)
-        append!(column_names, ["Diffusion time τ_D [s]"])
-        !isnothing(diffusivity) && (append!(column_names, ["Beam width w_0 [m]"]))
-        append!(column_names, ["Current amplitude G(0)"])
-        isnothing(offset) && (append!(column_names, ["Offset G(∞)"]))
-        append!(column_names, ["Dynamic time $(i) (τ_dyn) [s]" for i in 1:m])
-        append!(column_names, ["Dynamic fraction $(i) (K_dyn)" for i in 1:m])
+        push!(names, isnothing(diffusivity) ? "Diffusion time τ_D [s]" : "Beam width w₀ [m]")
+
+        m = _m_from(length(names))
+        append!(names, ["Dynamic time $(i) (τ_dyn) [s]" for i in 1:m])
+        append!(names, ["Dynamic fraction $(i) (K_dyn)" for i in 1:m])
+
     elseif model_name === :fcs_2d_mdiff
         isnothing(n_diff) && throw(ArgumentError("n_diff required for fcs_2d_mdiff"))
-        n = n_diff
-        base = isnothing(offset) ? 2n + 2 : 2n + 1
-        m = _ndyn_from_len(L - base)
+        
+        append!(names, ["Diffusion time τ_D[$i] [s]" for i in 1:n_diff])
+        n_diff > 1 && (append!(names, ["Population fraction w[$i]" for i in 1:(n-1)]))
 
-        append!(column_names, ["Diffusion time $(i) τ_D[$i] [s]" for i in 1:n])
-        append!(column_names, ["Population fraction $(i) w[$i]" for i in 1:n])
-        append!(column_names, ["Current amplitude G(0)"])
-        isnothing(offset) && (append!(column_names, ["Offset G(∞)"]))
-        append!(column_names, ["Dynamic time $(i) (τ_dyn) [s]" for i in 1:m])
-        append!(column_names, ["Dynamic fraction $(i) (K_dyn)" for i in 1:m])
+        m = _m_from(length(names))
+        append!(names, ["Dynamic time $(i) (τ_dyn) [s]" for i in 1:m])
+        append!(names, ["Dynamic fraction $(i) (K_dyn)" for i in 1:m])
+
     elseif model_name == :fcs_2d_anom
-        m = isnothing(offset) ? _ndyn_from_len(L - 4) : _ndyn_from_len(L - 3)
-        append!(column_names, ["Diffusion time τ_D [s]"])
-        isnothing(diffusivity) && (append!(column_names, ["Beam width w_0 [m]"]))
-        append!(column_names, ["Current amplitude G(0)"])
-        isnothing(offset) && (append!(column_names, ["Offset G(∞)"]))
-        append!(column_names, ["Anomolous exponent α"])
-        append!(column_names, ["Dynamic time $(i) (τ_dyn) [s]" for i in 1:m])
-        append!(column_names, ["Dynamic fraction $(i) (K_dyn)" for i in 1:m])
+        push!(names, isnothing(diffusivity) ? "Diffusion time τ_D [s]" : "Beam width w₀ [m]")
+        push!(names, "Anomolous exponent α")
+
+        m = _m_from(length(names))
+        append!(names, ["Dynamic time $(i) (τ_dyn) [s]" for i in 1:m])
+        append!(names, ["Dynamic fraction $(i) (K_dyn)" for i in 1:m])
+    
+    elseif model_name == :fcs_2d_anom_mdiff
+        isnothing(n_diff) && throw(ArgumentError("n_diff required for fcs_2d_anom_mdiff"))
+
+        append!(names, ["Diffusion time τ_D[$i] [s]" for i in 1:n])
+        append!(names, ["Anomalous exponent α[$i]" for i in 1:n])
+        n_diff > 1 && (append!(names, ["Population fraction w[$i]" for i in 1:(n-1)]))
+
+        m = _m_from(length(names))
+        append!(names, ["Dynamic time $(i) (τ_dyn) [s]" for i in 1:m])
+        append!(names, ["Dynamic fraction $(i) (K_dyn)" for i in 1:m])
+
     elseif model_name === :fcs_3d
-        m = isnothing(offset) ? _ndyn_from_len(L - 4) : _ndyn_from_len(L - 3)
-        append!(column_names, ["Diffusion time τ_D [s]"])
-        !isnothing(diffusivity) && (append!(column_names, ["Beam width w_0 [m]"]))
-        append!(column_names, ["Current amplitude G(0)"])
-        isnothing(offset) && (append!(column_names, ["Offset G(∞)"]))
-        append!(column_names, ["Structure factor κ"])
-        append!(column_names, ["Dynamic time $(i) (τ_dyn) [s]" for i in 1:m])
-        append!(column_names, ["Dynamic fraction $(i) (K_dyn)" for i in 1:m])
+        push!(names, "Structure factor κ")
+        push!(names, isnothing(diffusivity) ? "Diffusion time τ_D [s]" : "Beam width w₀ [m]")
+
+        m = _m_from(length(names))
+        append!(names, ["Dynamic time $(i) (τ_dyn) [s]" for i in 1:m])
+        append!(names, ["Dynamic fraction $(i) (K_dyn)" for i in 1:m])
+        
     elseif model_name === :fcs_3d_mdiff
         isnothing(n_diff) && throw(ArgumentError("n_diff required for fcs_3d_mdiff"))
-        n = n_diff
-        base = isnothing(offset) ? 2n + 3 : 2n + 2
-        m = _ndyn_from_len(L - base)
+        
+        push!(names, "Structure factor κ")
+        append!(names, ["Diffusion time τ_D[$i] [s]" for i in 1:n_diff])
+        n_diff > 1 && (append!(names, ["Population fraction w[$i]" for i in 1:(n-1)]))
+        
+        m = _m_from(length(names))
+        append!(names, ["Dynamic time $(i) (τ_dyn) [s]" for i in 1:m])
+        append!(names, ["Dynamic fraction $(i) (K_dyn)" for i in 1:m])
 
-        append!(column_names, ["Diffusion time $(i) τ_D[$i] [s]" for i in 1:n])
-        append!(column_names, ["Population fraction $(i) w[$i]" for i in 1:n])
-        append!(column_names, ["Current amplitude G(0)"])
-        isnothing(offset) && (append!(column_names, ["Offset G(∞)"]))
-        append!(column_names, ["Structure factor κ"])
-        append!(column_names, ["Dynamic time $(i) (τ_dyn) [s]" for i in 1:m])
-        append!(column_names, ["Dynamic fraction $(i) (K_dyn)" for i in 1:m])
     else
         return String[]
     end
 
-    return column_names
+    return names
 end
 
 """
@@ -184,7 +193,6 @@ function fcs_plot(model::Function, ch::FCSChannel, θ0::AbstractVector;
         _fcs_plot(model, ch, θ0, color1, color2; kwargs...)
     end
 end
-
 
 
 """
