@@ -1,7 +1,8 @@
-using FCSFitting, Test, LsqFit
+using FCSFitting, Test, Random, LsqFit
 
-# addtests("fcs_fit.jl")
+Random.seed!(42)
+
 include("gof.jl")
-# addtests("io_utils.jl")
-# addtests("models.jl")
-# addtests("ext.jl")
+include("models.jl")
+include("io_utils.jl")
+include("fcs_fit.jl")

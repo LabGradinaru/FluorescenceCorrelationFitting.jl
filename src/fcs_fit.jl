@@ -62,11 +62,6 @@ function infer_noscale_indices(model_name::Symbol, p0::AbstractVector;
         m > 0 && append!(idx, collect(diff_idx + m + 1 : diff_idx + 2m))
         return idx
 
-    elseif (model_name === :fcs_3d) || (model_name === :fcs_2d_anom)
-        base = isnothing(offset) ? 4 : 3
-        m = _ndyn_from_len(L - base)
-        return m == 0 ? Int[] : collect(base + m + 1 : base + 2m)
-
     elseif model_name === :fcs_2d_anom_mdiff
         isnothing(n_diff) && throw(ArgumentError("n_diff required for fcs_2d_anom_mdiff"))
         base0 = isnothing(offset) ? 2 : 1
@@ -80,6 +75,11 @@ function infer_noscale_indices(model_name::Symbol, p0::AbstractVector;
         n_diff > 1 && append!(idx, collect(α_end+1:w_end))
         m > 0 && append!(idx, collect(diff_idx + m + 1 : diff_idx + 2m))
         return idx
+    
+    elseif (model_name === :fcs_3d) || (model_name === :fcs_2d_anom)
+        base = isnothing(offset) ? 4 : 3
+        m = _ndyn_from_len(L - base)
+        return m == 0 ? Int[] : collect(base + m + 1 : base + 2m)
 
     elseif model_name === :fcs_3d_mdiff
         isnothing(n_diff) && throw(ArgumentError("n_diff required for fcs_3d_mdiff"))
@@ -154,8 +154,14 @@ function fcs_fit(model::Function, lag_times::AbstractVector,
     !isnothing(σ) && (length(σ) == length(lag_times) ||
         throw(ArgumentError("Standard deviations must have same size as lag times and data.")))
 
-    # if no weight is given, replace with the inverse of the standard deviation, if it is given
-    (isnothing(wt) && !isnothing(σ)) && (wt = @. 1 / σ^2)
+    if isnothing(wt)
+        if isnothing(σ) # empty array => equal weights
+            wt = ones(eltype(corr_data), length(corr_data))
+        else # std devs. are given so use 1/σ² weight
+            wt = @. 1 / σ^2
+        end
+    end
+    (isnothing(wt) && !isnothing(σ)) && ()
 
     # infer model name to pick non-scaled indices
     mname = nameof(model)  # Symbol if model is a named function

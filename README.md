@@ -2,7 +2,7 @@ A package for fitting previously-correlated fluorescence correlation spectroscop
 
 # Usage details
 
-If you are new to Julia, read the section "FCSFitting: New to Julia" below first.
+If you are new to Julia, read the "Environment and Jupyter kernel creation" section below first.
 
 For most users, the primary access point should be the notebook `examples/fitting.ipynb` which illustrates the key utilities of the package.
 From dataset-to-dataset, the `filepath` variable in cell 2 should be changed, as well as the `model` in cell 3 and the initial parameter estimates and their bounds.

@@ -2,6 +2,10 @@ const BOLTZMANN = 1.380649e-23 # Boltzmann constant in SI units
 const AVAGADROS = 6.022141e23 # Avagadro's number in SI units
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Convenience calculators
+# ─────────────────────────────────────────────────────────────────────────────
+
 """
     τD(D, w0)
 Convert diffusion coefficient `D` and lateral waist `w0` to the lateral diffusion time τD.
@@ -59,7 +63,7 @@ Estimate the **molar concentration** (in mol/L) from FCS fit parameters.
                                Ks::AbstractVector = [],
                                ics::AbstractVector{Int} = [0])
     g0 > 0 || throw(ArgumentError("g0 must be positive"))
-    κ  > 0 || throw(ArgumentError("κ must be positive"))
+    κ > 0 || throw(ArgumentError("κ must be positive"))
     w0 > 0 || throw(ArgumentError("w0 must be positive"))
     all(0 .<= Ks .< 1) || throw(ArgumentError("All Ks must lie in [0,1)"))
 
@@ -97,7 +101,6 @@ Analogue to `concentration` when the a 2d fit is performed.
                                  Ks::AbstractVector = [],
                                  ics::AbstractVector{Int} = [0])
     g0 > 0 || throw(ArgumentError("g0 must be positive"))
-    κ  > 0 || throw(ArgumentError("κ must be positive"))
     w0 > 0 || throw(ArgumentError("w0 must be positive"))
     all(0 .<= Ks .< 1) || throw(ArgumentError("All Ks must lie in [0,1)"))
 
@@ -145,7 +148,7 @@ If an error in the diffusivity is provided, returns the error in Rh estimate
     D > 0 || throw(ArgumentError("Diffusivity must be positive."))
     T > 0 || throw(ArgumentError("Temperature must be positive."))
     η > 0 || throw(ArgumentError("Viscosity must be positive."))
-    isnothing(x) || x > 0 || throw(ArgumentError("x must be positive if not nothing."))
+    isnothing(D_err) || D_err > 0 || throw(ArgumentError("x must be positive if not nothing."))
     
     _scale = BOLTZMANN * T / (6π * η)
     if isnothing(D_err)
@@ -155,23 +158,10 @@ If an error in the diffusivity is provided, returns the error in Rh estimate
     end
 end
 
-# clamp into (ε, 1-ε) to keep fractions valid without NaNs/Infs in fits
-@inline function clamp01(x::T) where T
-    epsT = eps(T)
-    return clamp(x, epsT, one(T) - epsT)
-end
 
-# broadcastable vectors from Real or AbstractVector
-@inline _asvec(x::AbstractVector) = x
-@inline _asvec(x::Real) = (x,)
-
-# normalize mixture weights to sum to 1 without mutating the input
-function _normalize_weights(ws::AbstractVector)
-    T = promote_type(eltype(ws), Float64)
-    w = T.(ws)
-    s = sum(w)
-    s > 0 ? (w ./ s) : fill(inv(length(w)), length(w))
-end
+# ─────────────────────────────────────────────────────────────────────────────
+# Low-level helpers
+# ─────────────────────────────────────────────────────────────────────────────
 
 # determine the number of dynamic components based on the parameter vector length
 @inline function _ndyn_from_len(total_extra::Int)
@@ -185,6 +175,7 @@ end
 function _dynamics_factor(t, τs::AbstractVector, Ks::AbstractVector, ics::AbstractVector{Int})
     length(τs) == length(Ks) || throw(ArgumentError("τs and Ks must have same length."))
     sum(ics) == length(τs) || throw(ArgumentError("The number of components must match τs and Ks"))
+    all(0 .<= Ks .< 1) || throw(ArgumentError("All Ks must lie in [0,1)"))
 
     if isempty(τs)
         return t isa AbstractVector ?
@@ -434,9 +425,9 @@ function fcs_2d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<
     sp = scales .* p
 
     τDs = collect(@view sp[base+1:base+n_diff])
-    w_end = base + n + (n > 1 ? (n-1) : 0)
-    wts = (n == 1) ? Float64[] : collect(@view sp[base+n+1 : w_end])
-    (n == 1 || sum(wts) ≤ 1) || throw(ArgumentError("Sum of weights must be ≤ 1"))
+    w_end = base + n_diff + (n_diff > 1 ? (n_diff-1) : 0)
+    wts = (n_diff == 1) ? Float64[] : collect(@view sp[base+n_diff+1 : w_end])
+    (n_diff == 1 || sum(wts) ≤ 1) || throw(ArgumentError("Sum of weights must be ≤ 1"))
     
     m = _ndyn_from_len(L - w_end)
     isnothing(ics) && (ics = ones(Int, m))
@@ -633,16 +624,16 @@ function fcs_3d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<
     L == length(scales) || throw(ArgumentError("Scaling and parameter vector must be of the same length."))
 
     base = isnothing(offset) ? 3 : 2 # base includes: g0, (offset), κ
-    L ≥ base + n || throw(ArgumentError("p too short for $n_diff diffusion times"))
+    L ≥ base + n_diff || throw(ArgumentError("p too short for $n_diff diffusion times"))
     sp = scales .* p
 
     # diffusion
     τDs = collect(@view sp[base+1:base+n_diff])
     diff_idx = base+2n_diff-1
     
-    w_end = base + n + (n > 1 ? (n-1) : 0)
-    wts = (n == 1) ? Float64[] : collect(@view sp[base+n+1 : w_end])
-    (n == 1 || sum(wts) ≤ 1) || throw(ArgumentError("Sum of weights must be ≤ 1."))
+    w_end = base + n_diff + (n_diff > 1 ? (n_diff-1) : 0)
+    wts = (n_diff == 1) ? Float64[] : collect(@view sp[base+n_diff+1 : w_end])
+    (n_diff == 1 || sum(wts) ≤ 1) || throw(ArgumentError("Sum of weights must be ≤ 1."))
 
     # dynamics
     m = _ndyn_from_len(L - w_end)

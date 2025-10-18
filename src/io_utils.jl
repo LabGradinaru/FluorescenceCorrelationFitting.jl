@@ -79,7 +79,7 @@ function infer_parameter_list(model_name::Symbol, params::AbstractVector;
         isnothing(n_diff) && throw(ArgumentError("n_diff required for fcs_2d_mdiff"))
         
         append!(names, ["Diffusion time τ_D[$i] [s]" for i in 1:n_diff])
-        n_diff > 1 && (append!(names, ["Population fraction w[$i]" for i in 1:(n-1)]))
+        n_diff > 1 && (append!(names, ["Population fraction w[$i]" for i in 1:(n_diff-1)]))
 
         m = _m_from(length(names))
         append!(names, ["Dynamic time $(i) (τ_dyn) [s]" for i in 1:m])
@@ -96,9 +96,9 @@ function infer_parameter_list(model_name::Symbol, params::AbstractVector;
     elseif model_name == :fcs_2d_anom_mdiff
         isnothing(n_diff) && throw(ArgumentError("n_diff required for fcs_2d_anom_mdiff"))
 
-        append!(names, ["Diffusion time τ_D[$i] [s]" for i in 1:n])
-        append!(names, ["Anomalous exponent α[$i]" for i in 1:n])
-        n_diff > 1 && (append!(names, ["Population fraction w[$i]" for i in 1:(n-1)]))
+        append!(names, ["Diffusion time τ_D[$i] [s]" for i in 1:n_diff])
+        append!(names, ["Anomalous exponent α[$i]" for i in 1:n_diff])
+        n_diff > 1 && (append!(names, ["Population fraction w[$i]" for i in 1:(n_diff-1)]))
 
         m = _m_from(length(names))
         append!(names, ["Dynamic time $(i) (τ_dyn) [s]" for i in 1:m])
@@ -117,7 +117,7 @@ function infer_parameter_list(model_name::Symbol, params::AbstractVector;
         
         push!(names, "Structure factor κ")
         append!(names, ["Diffusion time τ_D[$i] [s]" for i in 1:n_diff])
-        n_diff > 1 && (append!(names, ["Population fraction w[$i]" for i in 1:(n-1)]))
+        n_diff > 1 && (append!(names, ["Population fraction w[$i]" for i in 1:(n_diff-1)]))
         
         m = _m_from(length(names))
         append!(names, ["Dynamic time $(i) (τ_dyn) [s]" for i in 1:m])
