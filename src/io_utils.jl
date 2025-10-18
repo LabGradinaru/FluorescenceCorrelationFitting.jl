@@ -9,6 +9,16 @@ const SI_PREFIXES = Dict(
     "p" => 1e12
 )
 
+const G0_NAME = "Current amplitude"
+const OFF_NAME = "Offset"
+const ANOM_NAME = "Anomalous exponent"
+const STRUCT_NAME = "Structure factor"
+const DIFFTIME_NAME = "Residence time"
+const DIFFFRAC_NAME = "Diffusion population fraction"
+const BEAM_NAME = "Beam width"
+const DYNTIME_NAME = "Dynamic lifetime"
+const DYNFRAC_NAME = "Dynamic population fraction"
+
 
 """
     FCSChannel(name, τ, G, σ)
@@ -46,6 +56,7 @@ struct FCSData
     source::String               # filepath or “in-memory”
 end
 
+
 """
     infer_parameter_list(model_name, params; n_diff=nothing)
 
@@ -65,67 +76,44 @@ function infer_parameter_list(model_name::Symbol, params::AbstractVector;
 
     _m_from = base_len -> _ndyn_from_len(L - base_len)
 
-    push!(names, "Current amplitude G(0)")
-    isnothing(offset) && push!(names, "Offset G(∞)")
+    push!(names, G0_NAME)
+    isnothing(offset) && push!(names, OFF_NAME)
 
     if model_name === :fcs_2d
-        push!(names, isnothing(diffusivity) ? "Diffusion time τ_D [s]" : "Beam width w₀ [m]")
-
-        m = _m_from(length(names))
-        append!(names, ["Dynamic time $(i) (τ_dyn) [s]" for i in 1:m])
-        append!(names, ["Dynamic fraction $(i) (K_dyn)" for i in 1:m])
+        push!(names, isnothing(diffusivity) ? DIFFTIME_NAME * " [s]" : BEAM_NAME * " [m]")
 
     elseif model_name === :fcs_2d_mdiff
         isnothing(n_diff) && throw(ArgumentError("n_diff required for fcs_2d_mdiff"))
-        
-        append!(names, ["Diffusion time τ_D[$i] [s]" for i in 1:n_diff])
-        n_diff > 1 && (append!(names, ["Population fraction w[$i]" for i in 1:(n_diff-1)]))
-
-        m = _m_from(length(names))
-        append!(names, ["Dynamic time $(i) (τ_dyn) [s]" for i in 1:m])
-        append!(names, ["Dynamic fraction $(i) (K_dyn)" for i in 1:m])
+        append!(names, [DIFFTIME_NAME * " $i [s]" for i in 1:n_diff])
+        n_diff > 1 && (append!(names, [DIFFFRAC_NAME * " $i" for i in 1:(n_diff-1)]))
 
     elseif model_name == :fcs_2d_anom
-        push!(names, isnothing(diffusivity) ? "Diffusion time τ_D [s]" : "Beam width w₀ [m]")
-        push!(names, "Anomolous exponent α")
-
-        m = _m_from(length(names))
-        append!(names, ["Dynamic time $(i) (τ_dyn) [s]" for i in 1:m])
-        append!(names, ["Dynamic fraction $(i) (K_dyn)" for i in 1:m])
+        push!(names, isnothing(diffusivity) ? DIFFTIME_NAME * " [s]" : BEAM_NAME * " [m]")
+        push!(names, ANOM_NAME)
     
     elseif model_name == :fcs_2d_anom_mdiff
         isnothing(n_diff) && throw(ArgumentError("n_diff required for fcs_2d_anom_mdiff"))
-
-        append!(names, ["Diffusion time τ_D[$i] [s]" for i in 1:n_diff])
-        append!(names, ["Anomalous exponent α[$i]" for i in 1:n_diff])
-        n_diff > 1 && (append!(names, ["Population fraction w[$i]" for i in 1:(n_diff-1)]))
-
-        m = _m_from(length(names))
-        append!(names, ["Dynamic time $(i) (τ_dyn) [s]" for i in 1:m])
-        append!(names, ["Dynamic fraction $(i) (K_dyn)" for i in 1:m])
+        append!(names, [DIFFTIME_NAME * " $i [s]" for i in 1:n_diff])
+        append!(names, [ANOM_NAME * " $i" for i in 1:n_diff])
+        n_diff > 1 && (append!(names, [DIFFFRAC_NAME * " $i" for i in 1:(n_diff-1)]))
 
     elseif model_name === :fcs_3d
-        push!(names, "Structure factor κ")
-        push!(names, isnothing(diffusivity) ? "Diffusion time τ_D [s]" : "Beam width w₀ [m]")
-
-        m = _m_from(length(names))
-        append!(names, ["Dynamic time $(i) (τ_dyn) [s]" for i in 1:m])
-        append!(names, ["Dynamic fraction $(i) (K_dyn)" for i in 1:m])
+        push!(names, STRUCT_NAME)
+        push!(names, isnothing(diffusivity) ? DIFFTIME_NAME * " [s]" : BEAM_NAME * " [m]")
         
     elseif model_name === :fcs_3d_mdiff
         isnothing(n_diff) && throw(ArgumentError("n_diff required for fcs_3d_mdiff"))
-        
-        push!(names, "Structure factor κ")
-        append!(names, ["Diffusion time τ_D[$i] [s]" for i in 1:n_diff])
-        n_diff > 1 && (append!(names, ["Population fraction w[$i]" for i in 1:(n_diff-1)]))
-        
-        m = _m_from(length(names))
-        append!(names, ["Dynamic time $(i) (τ_dyn) [s]" for i in 1:m])
-        append!(names, ["Dynamic fraction $(i) (K_dyn)" for i in 1:m])
+        push!(names, STRUCT_NAME)
+        append!(names, [DIFFTIME_NAME * " $i [s]" for i in 1:n_diff])
+        n_diff > 1 && (append!(names, [DIFFFRAC_NAME * " $i" for i in 1:(n_diff-1)]))
 
     else
         return String[]
     end
+
+    m = _m_from(length(names))
+    append!(names, [DYNTIME_NAME * " $(i) [s]" for i in 1:m])
+    append!(names, [DYNFRAC_NAME * " $(i)" for i in 1:m])
 
     return names
 end

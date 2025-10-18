@@ -29,49 +29,47 @@
 
     # infer_parameter_list
     names = FCSFitting.infer_parameter_list(:fcs_2d, zeros(3); diffusivity=nothing, offset=nothing)
-    @test names == ["Current amplitude G(0)", "Offset G(∞)", "Diffusion time τ_D [s]"]
+    @test names == [FCSFitting.G0_NAME, FCSFitting.OFF_NAME, FCSFitting.DIFFTIME_NAME * " [s]"]
     names = FCSFitting.infer_parameter_list(:fcs_2d, zeros(4); diffusivity=1.0, offset=0.0)
-    @test names == ["Current amplitude G(0)", "Beam width w₀ [m]", "Dynamic time 1 (τ_dyn) [s]", "Dynamic fraction 1 (K_dyn)"]
+    @test names == [FCSFitting.G0_NAME, FCSFitting.BEAM_NAME * " [m]", FCSFitting.DYNTIME_NAME * " 1 [s]", FCSFitting.DYNFRAC_NAME * " 1"]
     
     @test_throws ArgumentError FCSFitting.infer_parameter_list(:fcs_2d_mdiff, zeros(3); offset=nothing) # no n_diff input
     names = FCSFitting.infer_parameter_list(:fcs_2d_mdiff, zeros(3); n_diff=1, offset=nothing)
-    @test names == ["Current amplitude G(0)", "Offset G(∞)", "Diffusion time τ_D[1] [s]"]
+    @test names == [FCSFitting.G0_NAME, FCSFitting.OFF_NAME, FCSFitting.DIFFTIME_NAME * " 1 [s]"]
     names = FCSFitting.infer_parameter_list(:fcs_2d_mdiff, zeros(5); n_diff=2, offset=nothing)
-    @test names == ["Current amplitude G(0)", "Offset G(∞)", "Diffusion time τ_D[1] [s]", 
-                    "Diffusion time τ_D[2] [s]", "Population fraction w[1]"]
+    @test names == [FCSFitting.G0_NAME, FCSFitting.OFF_NAME, FCSFitting.DIFFTIME_NAME * " 1 [s]", 
+                    FCSFitting.DIFFTIME_NAME * " 2 [s]", FCSFitting.DIFFFRAC_NAME * " 1"]
     names = FCSFitting.infer_parameter_list(:fcs_2d_mdiff, zeros(6); n_diff=2, offset=0.0)
-    @test names == ["Current amplitude G(0)", "Diffusion time τ_D[1] [s]", 
-                    "Diffusion time τ_D[2] [s]", "Population fraction w[1]",
-                    "Dynamic time 1 (τ_dyn) [s]", "Dynamic fraction 1 (K_dyn)"]
+    @test names == [FCSFitting.G0_NAME, FCSFitting.DIFFTIME_NAME * " 1 [s]", FCSFitting.DIFFTIME_NAME * " 2 [s]", 
+                    FCSFitting.DIFFFRAC_NAME * " 1", FCSFitting.DYNTIME_NAME * " 1 [s]", FCSFitting.DYNFRAC_NAME * " 1"]
 
     names = FCSFitting.infer_parameter_list(:fcs_2d_anom, zeros(4); diffusivity=nothing, offset=nothing)
-    @test names == ["Current amplitude G(0)", "Offset G(∞)", "Diffusion time τ_D [s]", "Anomolous exponent α"]
+    @test names == [FCSFitting.G0_NAME, FCSFitting.OFF_NAME, FCSFitting.DIFFTIME_NAME * " [s]", FCSFitting.ANOM_NAME]
     names = FCSFitting.infer_parameter_list(:fcs_2d_anom, zeros(5); diffusivity=1.0, offset=0.0)
-    @test names == ["Current amplitude G(0)", "Beam width w₀ [m]", "Anomolous exponent α", 
-                    "Dynamic time 1 (τ_dyn) [s]", "Dynamic fraction 1 (K_dyn)"]
+    @test names == [FCSFitting.G0_NAME, FCSFitting.BEAM_NAME * " [m]", FCSFitting.ANOM_NAME, 
+                    FCSFitting.DYNTIME_NAME * " 1 [s]", FCSFitting.DYNFRAC_NAME * " 1"]
 
     @test_throws ArgumentError FCSFitting.infer_parameter_list(:fcs_2d_anom_mdiff, zeros(3); offset=nothing) # no n_diff input
     names = FCSFitting.infer_parameter_list(:fcs_2d_anom_mdiff, zeros(4); n_diff=1, offset=nothing)
-    @test names == ["Current amplitude G(0)", "Offset G(∞)", "Diffusion time τ_D[1] [s]", "Anomalous exponent α[1]"]
+    @test names == [FCSFitting.G0_NAME, FCSFitting.OFF_NAME, FCSFitting.DIFFTIME_NAME * " 1 [s]", FCSFitting.ANOM_NAME * " 1"]
     names = FCSFitting.infer_parameter_list(:fcs_2d_anom_mdiff, zeros(10); n_diff=2, offset=0.0)
-    @test names == ["Current amplitude G(0)", "Diffusion time τ_D[1] [s]", "Diffusion time τ_D[2] [s]", 
-                    "Anomalous exponent α[1]", "Anomalous exponent α[2]", "Population fraction w[1]",
-                    "Dynamic time 1 (τ_dyn) [s]", "Dynamic time 2 (τ_dyn) [s]", 
-                    "Dynamic fraction 1 (K_dyn)", "Dynamic fraction 2 (K_dyn)"]
+    @test names == [FCSFitting.G0_NAME, FCSFitting.DIFFTIME_NAME * " 1 [s]", FCSFitting.DIFFTIME_NAME * " 2 [s]", 
+                    FCSFitting.ANOM_NAME * " 1", FCSFitting.ANOM_NAME * " 2", FCSFitting.DIFFFRAC_NAME * " 1", FCSFitting.DYNTIME_NAME * " 1 [s]", 
+                    FCSFitting.DYNTIME_NAME * " 2 [s]", FCSFitting.DYNFRAC_NAME * " 1", FCSFitting.DYNFRAC_NAME * " 2"]
 
     names = FCSFitting.infer_parameter_list(:fcs_3d, zeros(4); diffusivity=nothing, offset=nothing)
-    @test names == ["Current amplitude G(0)", "Offset G(∞)", "Structure factor κ", "Diffusion time τ_D [s]"]
+    @test names == [FCSFitting.G0_NAME, FCSFitting.OFF_NAME, FCSFitting.STRUCT_NAME, FCSFitting.DIFFTIME_NAME * " [s]"]
     names = FCSFitting.infer_parameter_list(:fcs_3d, zeros(5); diffusivity=1.0, offset=0.0)
-    @test names == ["Current amplitude G(0)", "Structure factor κ", "Beam width w₀ [m]",
-                    "Dynamic time 1 (τ_dyn) [s]", "Dynamic fraction 1 (K_dyn)"]
+    @test names == [FCSFitting.G0_NAME, FCSFitting.STRUCT_NAME, FCSFitting.BEAM_NAME * " [m]", FCSFitting.DYNTIME_NAME * " 1 [s]", FCSFitting.DYNFRAC_NAME * " 1"]
 
     @test_throws ArgumentError FCSFitting.infer_parameter_list(:fcs_3d_mdiff, zeros(3); offset=nothing) # no n_diff input
     names = FCSFitting.infer_parameter_list(:fcs_3d_mdiff, zeros(3); n_diff=1, offset=0.0)
-    @test names == ["Current amplitude G(0)", "Structure factor κ", "Diffusion time τ_D[1] [s]"]
+    @test names == [FCSFitting.G0_NAME, FCSFitting.STRUCT_NAME, FCSFitting.DIFFTIME_NAME * " 1 [s]"]
     names = FCSFitting.infer_parameter_list(:fcs_3d_mdiff, zeros(8); n_diff=2, offset=nothing)
-    @test names == ["Current amplitude G(0)", "Offset G(∞)", "Structure factor κ", 
-                    "Diffusion time τ_D[1] [s]", "Diffusion time τ_D[2] [s]", "Population fraction w[1]",
-                    "Dynamic time 1 (τ_dyn) [s]", "Dynamic fraction 1 (K_dyn)"]
+    @test names == [FCSFitting.G0_NAME, FCSFitting.OFF_NAME, FCSFitting.STRUCT_NAME, 
+                    FCSFitting.DIFFTIME_NAME * " 1 [s]", FCSFitting.DIFFTIME_NAME * " 2 [s]", FCSFitting.DIFFFRAC_NAME * " 1",
+                    FCSFitting.DYNTIME_NAME * " 1 [s]", FCSFitting.DYNFRAC_NAME * " 1"]
+
 
     # sigstr
     @test FCSFitting.sigstr(0.0) == "0"

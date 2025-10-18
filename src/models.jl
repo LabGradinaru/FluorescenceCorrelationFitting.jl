@@ -1,6 +1,17 @@
 const BOLTZMANN = 1.380649e-23 # Boltzmann constant in SI units
 const AVAGADROS = 6.022141e23 # Avagadro's number in SI units
 
+# Common error messages
+const w0_ERROR = "w0 must be positive"
+const κ_ERROR = "κ must be positive"
+const D_ERROR = "Diffusivity must be positive"
+const NDIFF_ERROR = "n_diff must be ≥ 1"
+const SP_ERROR = "Scaling and parameter vectors must be of the same length."
+PNDIFF_ERROR(x) = "Parameter vector too short for " * nameof(x) * "=$x"
+const WEIGHTS_ERROR = "Sum of weights must be ≤ 1"
+const PICS_ERROR = "Mismatch between dynamics in the parameter vector and the independent components."
+NPARAM_ERROR(x) = "Need at least " * x * " input parameters."
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Convenience calculators
@@ -11,8 +22,8 @@ const AVAGADROS = 6.022141e23 # Avagadro's number in SI units
 Convert diffusion coefficient `D` and lateral waist `w0` to the lateral diffusion time τD.
 """
 @inline function τD(D::Real, w0::Real)
-    w0 > 0 || throw(ArgumentError("w0 must be positive"))
-    D  > 0 || throw(ArgumentError("D must be positive"))
+    w0 > 0 || throw(ArgumentError(w0_ERROR))
+    D  > 0 || throw(ArgumentError(D_ERROR))
     return w0^2 / (4D)
 end
 """
@@ -20,7 +31,7 @@ end
 Convert diffusion time `τD` and beam waist `w0` to the diffusivity.
 """
 @inline function diffusivity(τD::Real, w0::Real)
-    w0 > 0 || throw(ArgumentError("w0 must be positive"))
+    w0 > 0 || throw(ArgumentError(w0_ERROR))
     τD > 0 || throw(ArgumentError("τD must be positive"))
     return w0^2 / (4τD)
 end
@@ -30,8 +41,8 @@ end
 Calculate the effective volume from fitted FCS parameters.
 """
 @inline function volume(w0::Real, κ::Real)
-    w0 > 0 || throw(ArgumentError("w0 must be positive"))
-    κ  > 0 || throw(ArgumentError("κ must be positive"))
+    w0 > 0 || throw(ArgumentError(w0_ERROR))
+    κ > 0 || throw(ArgumentError(κ_ERROR))
     return π^(3/2) * w0^3 * κ
 end
 """
@@ -39,7 +50,7 @@ end
 Calculate the area formed by the beam waist `w0`.
 """
 @inline function area(w0::Real) 
-    w0 > 0 || throw(ArgumentError("w0 must be positive"))
+    w0 > 0 || throw(ArgumentError(w0_ERROR))
     return π * w0^2
 end
 
@@ -63,8 +74,8 @@ Estimate the **molar concentration** (in mol/L) from FCS fit parameters.
                                Ks::AbstractVector = [],
                                ics::AbstractVector{Int} = [0])
     g0 > 0 || throw(ArgumentError("g0 must be positive"))
-    κ > 0 || throw(ArgumentError("κ must be positive"))
-    w0 > 0 || throw(ArgumentError("w0 must be positive"))
+    κ > 0 || throw(ArgumentError(κ_ERROR))
+    w0 > 0 || throw(ArgumentError(w0_ERROR))
     all(0 .<= Ks .< 1) || throw(ArgumentError("All Ks must lie in [0,1)"))
 
     # Validate / normalize ics
@@ -101,7 +112,7 @@ Analogue to `concentration` when the a 2d fit is performed.
                                  Ks::AbstractVector = [],
                                  ics::AbstractVector{Int} = [0])
     g0 > 0 || throw(ArgumentError("g0 must be positive"))
-    w0 > 0 || throw(ArgumentError("w0 must be positive"))
+    w0 > 0 || throw(ArgumentError(w0_ERROR))
     all(0 .<= Ks .< 1) || throw(ArgumentError("All Ks must lie in [0,1)"))
 
     # Validate / normalize ics
@@ -145,10 +156,10 @@ If an error in the diffusivity is provided, returns the error in Rh estimate
 """
 @inline function hydrodynamic(D::Real; T::Real=293.0, η=1.0016e-3, 
                               D_err::Union{Nothing,Real}=nothing)
-    D > 0 || throw(ArgumentError("Diffusivity must be positive."))
+    D > 0 || throw(ArgumentError(D_ERROR))
     T > 0 || throw(ArgumentError("Temperature must be positive."))
     η > 0 || throw(ArgumentError("Viscosity must be positive."))
-    isnothing(D_err) || D_err > 0 || throw(ArgumentError("x must be positive if not nothing."))
+    isnothing(D_err) || D_err > 0 || throw(ArgumentError("D_err must be positive if not nothing."))
     
     _scale = BOLTZMANN * T / (6π * η)
     if isnothing(D_err)
@@ -165,7 +176,7 @@ end
 
 # determine the number of dynamic components based on the parameter vector length
 @inline function _ndyn_from_len(total_extra::Int)
-    total_extra ≥ 0 || throw(ArgumentError("parameter vector too short."))
+    total_extra ≥ 0 || throw(ArgumentError("p too short."))
     rem(total_extra, 2) == 0 || throw(ArgumentError("τ_dyn and K_dyn must have the same length."))
     total_extra ÷ 2
 end
@@ -228,7 +239,7 @@ function _mdiff(t, τDs::AbstractVector, wts::AbstractVector, kernel::Function)
     if n == 1
         w_full = (1.0,)
     else
-        sum(wts) ≤ 1 || throw(ArgumentError("Sum of weights must be ≤ 1"))
+        sum(wts) ≤ 1 || throw(ArgumentError(WEIGHTS_ERROR))
         w_full = (vcat(wts, 1 - sum(wts)))::Vector{Float64}
     end
 
@@ -263,7 +274,7 @@ end
     if n == 1
         w_full = (1.0,)
     else
-        sum(wts) ≤ 1 || throw(ArgumentError("Sum of weights must be ≤ 1"))
+        sum(wts) ≤ 1 || throw(ArgumentError(WEIGHTS_ERROR))
         w_full = (vcat(wts, 1 - sum(wts)))::Vector{Float64}
     end
 
@@ -371,15 +382,15 @@ function fcs_2d(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real}
                 offset::Union{Nothing,Real}=nothing)
     L = length(p)
     isnothing(scales) && (scales = ones(L))
-    L == length(scales) || throw(ArgumentError("Scaling and parameter vector must be of the same length."))
+    L == length(scales) || throw(ArgumentError(SP_ERROR))
     
     base::Int = isnothing(offset) ? 3 : 2 # base includes: g0, (offset), τD
-    L ≥ base || throw(ArgumentError("Need at least $base input parameters"))
+    L ≥ base || throw(ArgumentError(NPARAM_ERROR))
 
     sp = scales .* p
     m = _ndyn_from_len(L - base)
     isnothing(ics) && (ics = ones(Int, m))
-    sum(ics) == m || throw(ArgumentError("Mismatch between dynamics in `p` and `ics`."))
+    sum(ics) == m || throw(ArgumentError(PICS_ERROR))
 
     dyn = (m == 0) ? 1.0 : 
         _dynamics_factor(t, @view(sp[base+1:base+m]), 
@@ -404,7 +415,7 @@ The parameters vector `p` should be organized as
 *   `p[1]` → g0; the zero-lag autocorrelation
 *   `p[2]` → offset; the offset of the correlation from 0
 *   `p[3:n+2]` → τDs; the diffusion times of each diffuser
-*   `p[n+3:2n+1]` → weights; the fraction of diffuser in the first n-1 populations.
+*   `p[n+3:2n+1]` → ws; the fraction of diffuser in the first n-1 populations.
                     sum of weights constrained by unity so only n-1 dof are required
 *   `p[2n+2:2n+1+m]` → τ_dyn; the dynamic lifetimes
 *   `p[2n+2+m:end]` → K_dyn; the fraction corresponding of the population corresponding to the dynamic lifetime
@@ -415,23 +426,23 @@ function fcs_2d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<
                       n_diff::Integer=1, scales::Union{Nothing,AbstractVector}=nothing,
                       ics::Union{Nothing, AbstractVector{Int}}=nothing,
                       offset::Union{Nothing, Real}=nothing)
-    n_diff ≥ 1 || throw(ArgumentError("n_diff must be ≥ 1"))
+    n_diff ≥ 1 || throw(ArgumentError(NDIFF_ERROR))
     L = length(p)
     isnothing(scales) && (scales = ones(L))
-    L == length(scales) || throw(ArgumentError("Scaling and parameter vector must be of the same length."))
+    L == length(scales) || throw(ArgumentError(SP_ERROR))
 
     base = isnothing(offset) ? 2 : 1 # base includes: g0, (offset)
-    L ≥ base || throw(ArgumentError("p too short for n_diff=$n_diff (need ≥ $(base))"))
+    L ≥ base || throw(ArgumentError(PNDIFF_ERROR(n_diff)))
     sp = scales .* p
 
     τDs = collect(@view sp[base+1:base+n_diff])
     w_end = base + n_diff + (n_diff > 1 ? (n_diff-1) : 0)
-    wts = (n_diff == 1) ? Float64[] : collect(@view sp[base+n_diff+1 : w_end])
-    (n_diff == 1 || sum(wts) ≤ 1) || throw(ArgumentError("Sum of weights must be ≤ 1"))
+    wts = (n_diff == 1) ? Float64[] : collect(@view sp[base+n_diff+1:w_end])
+    (n_diff == 1 || sum(wts) ≤ 1) || throw(ArgumentError(WEIGHTS_ERROR))
     
     m = _ndyn_from_len(L - w_end)
     isnothing(ics) && (ics = ones(Int, m))
-    sum(ics) == m || throw(ArgumentError("Mismatch between dynamics in `p` and `ics`."))
+    sum(ics) == m || throw(ArgumentError(PICS_ERROR))
     τdyn = m == 0 ? Float64[] : collect(@view sp[w_end+1:w_end+m])
     Kdyn = m == 0 ? Float64[] : collect(@view sp[w_end+m+1:w_end+2m])
 
@@ -468,15 +479,15 @@ function fcs_2d_anom(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:
                      offset::Union{Nothing,Real}=nothing)
     L = length(p)
     isnothing(scales) && (scales = ones(L))
-    L == length(scales) || throw(ArgumentError("Scaling and parameter vector must be of the same length."))
+    L == length(scales) || throw(ArgumentError(SP_ERROR))
 
     base::Int = isnothing(offset) ? 4 : 3 # base includes: g0, (offset), τD, α
-    L ≥ base || throw(ArgumentError("Need at least $base input parameters."))
+    L ≥ base || throw(ArgumentError(NPARAM_ERROR))
     sp = scales .* p
 
     m = _ndyn_from_len(L - base)
     isnothing(ics) && (ics = ones(Int, m))
-    sum(ics) == m || throw(ArgumentError("Dynamics mismatch: sum(ics) != $m."))
+    sum(ics) == m || throw(ArgumentError(PICS_ERROR))
     τdyn = m == 0 ? Float64[] : collect(@view sp[base+1:base+m])
     Kdyn = m == 0 ? Float64[] : collect(@view sp[base+m+1:base+2m])
 
@@ -514,10 +525,10 @@ function fcs_2d_anom_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVec
                            n_diff::Integer=1, scales::Union{Nothing,AbstractVector}=nothing,
                            ics::Union{Nothing, AbstractVector{Int}}=nothing,
                            offset::Union{Nothing, Real}=nothing)
-    n_diff ≥ 1 || throw(ArgumentError("n_diff must be ≥ 1"))
+    n_diff ≥ 1 || throw(ArgumentError(NDIFF_ERROR))
     L = length(p)
     isnothing(scales) && (scales = ones(L))
-    L == length(scales) || throw(ArgumentError("Scaling and parameter vector must match length(p)."))
+    L == length(scales) || throw(ArgumentError(SP_ERROR))
 
     base = isnothing(offset) ? 2 : 1 # base includes: g0, (offset)
     scaled_p = scales .* p
@@ -535,12 +546,12 @@ function fcs_2d_anom_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVec
     # weights
     w_end = α_end + (n_diff > 1 ? (n_diff-1) : 0)
     wts = n_diff == 1 ? Float64[] : collect(@view scaled_p[α_end+1:w_end])
-    sum(wts) ≤ 1 || throw(ArgumentError("Sum of weights must be ≤ 1."))
+    sum(wts) ≤ 1 || throw(ArgumentError(WEIGHTS_ERROR))
 
     # dynamics
     m = _ndyn_from_len(L - w_end)
     isnothing(ics) && (ics = ones(Int, m))
-    sum(ics) == m || throw(ArgumentError("Dynamics mismatch: sum(ics) != $m."))
+    sum(ics) == m || throw(ArgumentError(PICS_ERROR))
     τdyn = m == 0 ? Float64[] : collect(@view scaled_p[w_end+1:w_end+m])
     Kdyn = m == 0 ? Float64[] : collect(@view scaled_p[w_end+m+1:w_end+2m])
 
@@ -575,16 +586,16 @@ function fcs_3d(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<:Real}
                 offset::Union{Nothing,Real}=nothing)
     L = length(p)
     isnothing(scales) && (scales = ones(L))
-    L == length(scales) || throw(ArgumentError("Scaling and parameter vector must be of the same length."))
+    L == length(scales) || throw(ArgumentError(SP_ERROR))
 
     base = isnothing(offset) ? 4 : 3 # base includes: g0, (offset), κ, τD
-    L ≥ base || throw(ArgumentError("Need at least $base input parameters."))
+    L ≥ base || throw(ArgumentError(NPARAM_ERROR))
     sp = scales .* p
 
     # dynamics
     m = _ndyn_from_len(L - base)
     isnothing(ics) && (ics = ones(Int, m))
-    sum(ics) == m || throw(ArgumentError("Dynamics mismatch: sum(ics) != $m."))
+    sum(ics) == m || throw(ArgumentError(PICS_ERROR))
     τ_dyn = m == 0 ? Float64[] : collect(@view(sp[base+1:base+m]))
     K_dyn = m == 0 ? Float64[] : collect(@view(sp[base+1+m:base+2m]))
 
@@ -618,13 +629,13 @@ function fcs_3d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<
                       n_diff::Integer=1, scales::Union{Nothing,AbstractVector}=nothing,
                       ics::Union{Nothing, AbstractVector{Int}}=nothing,
                       offset::Union{Nothing,Real}=nothing)
-    n_diff ≥ 1 || throw(ArgumentError("n_diff must be ≥ 1"))
+    n_diff ≥ 1 || throw(ArgumentError(NDIFF_ERROR))
     L = length(p)
     isnothing(scales) && (scales = ones(L))
-    L == length(scales) || throw(ArgumentError("Scaling and parameter vector must be of the same length."))
+    L == length(scales) || throw(ArgumentError(SP_ERROR))
 
     base = isnothing(offset) ? 3 : 2 # base includes: g0, (offset), κ
-    L ≥ base + n_diff || throw(ArgumentError("p too short for $n_diff diffusion times"))
+    L ≥ base + n_diff || throw(ArgumentError(PNDIFF_ERROR(n_diff)))
     sp = scales .* p
 
     # diffusion
@@ -633,12 +644,12 @@ function fcs_3d_mdiff(t::Union{Real,AbstractVector{<:Real}}, p::AbstractVector{<
     
     w_end = base + n_diff + (n_diff > 1 ? (n_diff-1) : 0)
     wts = (n_diff == 1) ? Float64[] : collect(@view sp[base+n_diff+1 : w_end])
-    (n_diff == 1 || sum(wts) ≤ 1) || throw(ArgumentError("Sum of weights must be ≤ 1."))
+    (n_diff == 1 || sum(wts) ≤ 1) || throw(ArgumentError(WEIGHTS_ERROR))
 
     # dynamics
     m = _ndyn_from_len(L - w_end)
     isnothing(ics) && (ics = ones(Int, m))
-    sum(ics) == m || throw(ArgumentError("Dynamics mismatch: sum(ics) != $m."))
+    sum(ics) == m || throw(ArgumentError(PICS_ERROR))
     τdyn = m == 0 ? Float64[] : collect(@view sp[w_end+1:w_end+m])
     Kdyn = m == 0 ? Float64[] : collect(@view sp[w_end+m+1:w_end+2m])
 
