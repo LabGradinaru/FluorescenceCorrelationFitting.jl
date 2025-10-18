@@ -1,0 +1,17 @@
+codecov:
+  require_ci_to_pass: false
+
+status:
+  project:
+    default:
+      target: auto
+      threshold: 2%   # allow small dips
+  patch:
+    default:
+      target: auto
+      threshold: 1%
+
+ignore:
+  - "test/"
+  - "examples/"
+  - "ext/"
