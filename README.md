@@ -1,6 +1,10 @@
-A package for fitting previously-correlated fluorescence correlation spectroscopy (FCS) data.
+# FCSFitting
 
-# Usage details
+*Fitting fluorescence correlation spectroscopy (FCS) data in Julia*
+
+[![codecov.io](https://codecov.io/github/LabGradinaru/FCSFitting/branch/main/graph/badge.svg?token=ZH9L011XZQ)](http://codecov.io/github/LabGradinaru/FCSFitting/branch/main)
+
+## Usage details
 
 If you are new to Julia, read the "Environment and Jupyter kernel creation" section below first.
 
@@ -40,7 +44,7 @@ where $Q$ is the fraction of the observed time spent undergoing PET dynamics.
 In the first case, we specify `ics = [2]` since we wish for the two components to be dependent upon each other.
 In the second, one may write `ics = [1,1]`, although this is taken as the base case so such a specification is optional.
 
-# Environment and Jupyter kernel creation
+## Environment and Jupyter kernel creation
 
 Once you have the Julia language installed (https://julialang.org/install/), since FCSFitting is not a public repository at the time of writing, the best way to interface with it is to create a new global environment.
 Moreover, if you are using VSCode as an IDE, you will need to instantiate a new kernel associated with this environment.
