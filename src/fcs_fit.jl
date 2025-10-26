@@ -143,21 +143,23 @@ function fcs_fit(spec::FCSModelSpec, times::AbstractVector,
                  zero_sub::Real=1.0, lower=nothing, upper=nothing,
                  kwargs...)
     # basic consistency checks
-    length(times) == length(data) ||
-        throw(ArgumentError("Lag times and correlation values must be of equal length."))
+    N = length(times)
+    N == length(data) || throw(ArgumentError("Lag times and correlation values must be of equal length."))
     if wt !== nothing
-        length(wt) == length(times) ||
-            throw(ArgumentError("Weights must have same size as lag times and data."))
+        length(wt) == N || throw(ArgumentError("Weights must have same size as lag times and data."))
     end
     if σ !== nothing
-        length(σ) == length(times) ||
-            throw(ArgumentError("Standard deviations must have same size as lag times and data."))
+        length(σ) == N || throw(ArgumentError("Standard deviations must have same size as lag times and data."))
     end
 
     # prefer explicit `wt`; otherwise derive from σ; otherwise unweighted.
     local weights = wt
-    if weights === nothing && σ !== nothing
-        weights = @. 1 / σ^2
+    if weights === nothing 
+        if σ !== nothing
+            weights = @. 1 / σ^2
+        else
+            weights = ones(N)
+        end
     end
 
     # Indices that should not be scaled (weights + K_dyn)

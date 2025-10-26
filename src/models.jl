@@ -279,8 +279,8 @@ end
 
 # determine the number of dynamic components based on the parameter vector length
 @inline function _ndyn_from_len(total_extra::Int)
-    total_extra ≥ 0 || throw(ArgumentError("p too short."))
-    rem(total_extra, 2) == 0 || throw(ArgumentError("τ_dyn and K_dyn must have the same length."))
+    total_extra ≥ 0 || throw(ArgumentError("Parameter vector too short."))
+    rem(total_extra, 2) == 0 || throw(ArgumentError("Dynamic lifetimes and fractions vectors must have the same length."))
     total_extra ÷ 2
 end
 
@@ -432,6 +432,7 @@ Base.@kwdef mutable struct FCSModel <: Function
     scales::Union{Nothing,AbstractVector} = nothing
 end
 (m::FCSModel)(t, p) = _eval(m.spec, t, p; scales=m.scales)
+
 
 function _eval(spec::FCSModelSpec, t, p::AbstractVector; scales=nothing)
     L = length(p)

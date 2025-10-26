@@ -75,8 +75,8 @@ Refer to `infer_parameter_names` if the given parameter vector interpretation is
 """
 function expected_parameter_names(spec::FCSModelSpec)
     names = _no_dynamics_params(spec)
-    push!(names, DIFFTIME_NAME * " [1:m] [s]")
-    push!(names, DIFFFRAC_NAME * " [1:m]")
+    push!(names, DYNTIME_NAME * " [1:m] [s]")
+    push!(names, DYNFRAC_NAME * " [1:m]")
     
     return names
 end
