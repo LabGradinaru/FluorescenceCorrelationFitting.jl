@@ -1,5 +1,5 @@
 """
-    log_lags(n_points::Int, τmin::Int, τmax::Int)
+    log_lags(n_points, τmin, τmax)
 
 Strictly increasing integer log-spaced lags in [τmin, τmax], zero-based.
 Returns *fewer* than n_points if there aren't enough distinct integers.
@@ -22,95 +22,19 @@ function log_lags(n_points::Int, τmin::Int, τmax::Int)
 end
 
 """
-    infer_noscale_indices(model_name::Symbol, p0::AbstractVector;
-                          n_diff::Union{Nothing,Int}=nothing,
-                          offset::Union{Nothing,Real}=nothing) -> Vector{Int}
+    build_scales_from_p0(p0; noscale_idx=Int[], zero_sub=1.0) -> (θ0, scales)
 
-Return 1-based indices in `p0` that should NOT be scaled (kept at scale 1):
-- Mixture weights (for `*_mdiff` models)
-- Dynamic fractions `K_dyn`
+Construct a scale vector so that, ideally, `θ0 = ones` and `p = scales .* θ`
+reproduces `p0`.
 
-This reflects the **parameter orderings**:
-- `fcs_2d`           : [g0, offset?, τD, τ_dyn..., K_dyn...]
-- `fcs_2d_mdiff`     : [g0, offset?, τD[1:n], w[1:n-1], τ_dyn..., K_dyn...]
-- `fcs_2d_anom`      : [g0, offset?, τD, α, τ_dyn..., K_dyn...]
-- `fcs_2d_anom_mdiff`: [g0, offset?, τD[1:n], α[1:n], w[1:n-1], τ_dyn..., K_dyn...]
-- `fcs_3d`           : [g0, offset?, κ, τD, τ_dyn..., K_dyn...]
-- `fcs_3d_mdiff`     : [g0, offset?, κ, τD[1:n], w[1:n-1], τ_dyn..., K_dyn...]
+- Indices in `noscale_idx` are set to scale `1.0` (e.g., mixture weights, K_dyn).
+- Zero entries in `p0` use `zero_sub` to avoid zero scale (so that the corresponding
+  `θ0[i] = p0[i]/zero_sub`, often `0`).
+
+Returns `(θ0, scales)`.
 """
-function infer_noscale_indices(model_name::Symbol, p0::AbstractVector;
-                               n_diff::Union{Nothing,Int}=nothing,
-                               offset::Union{Nothing,Real}=nothing)
-    L = length(p0)
-    if model_name === :fcs_2d
-        # base (up to τD): g0, (offset), τD
-        base = isnothing(offset) ? 3 : 2
-        m = _ndyn_from_len(L - base)
-        return m == 0 ? Int[] : collect(base + m + 1 : base + 2m)
-
-    elseif model_name === :fcs_2d_mdiff
-        isnothing(n_diff) && throw(ArgumentError("n_diff required for fcs_2d_mdiff"))
-        base0 = isnothing(offset) ? 2 : 1
-        τ_end = base0 + n_diff
-        w_start = τ_end + 1
-        w_end = w_start + (n_diff > 1 ? (n_diff - 1) : 0) - 1
-        diff_idx = max(τ_end, w_end)
-
-        m = _ndyn_from_len(L - diff_idx)
-        idx = Int[]
-        n_diff > 1 && append!(idx, collect(w_start:w_end))
-        m > 0 && append!(idx, collect(diff_idx + m + 1 : diff_idx + 2m))
-        return idx
-
-    elseif model_name === :fcs_2d_anom_mdiff
-        isnothing(n_diff) && throw(ArgumentError("n_diff required for fcs_2d_anom_mdiff"))
-        base0 = isnothing(offset) ? 2 : 1
-        τ_end = base0 + n_diff
-        α_end = τ_end + n_diff
-        w_end = α_end + (n_diff > 1 ? (n_diff - 1) : 0)
-        diff_idx = max(α_end, w_end)
-
-        m = _ndyn_from_len(L - diff_idx)
-        idx = Int[]
-        n_diff > 1 && append!(idx, collect(α_end+1:w_end))
-        m > 0 && append!(idx, collect(diff_idx + m + 1 : diff_idx + 2m))
-        return idx
-    
-    elseif (model_name === :fcs_3d) || (model_name === :fcs_2d_anom)
-        base = isnothing(offset) ? 4 : 3
-        m = _ndyn_from_len(L - base)
-        return m == 0 ? Int[] : collect(base + m + 1 : base + 2m)
-
-    elseif model_name === :fcs_3d_mdiff
-        isnothing(n_diff) && throw(ArgumentError("n_diff required for fcs_3d_mdiff"))
-        base0 = isnothing(offset) ? 3 : 2
-        τ_end = base0 + n_diff
-        w_start = τ_end + 1
-        w_end   = w_start + (n_diff > 1 ? (n_diff - 1) : 0) - 1
-        diff_idx = max(τ_end, w_end)
-
-        m = _ndyn_from_len(L - diff_idx)
-        idx = Int[]
-        n_diff > 1 && append!(idx, collect(w_start:w_end))
-        m > 0 && append!(idx, collect(diff_idx + m + 1 : diff_idx + 2m))
-        return idx
-
-    else
-        return Int[]
-    end
-end
-
-
-"""
-    build_scales_from_p0(p0; noscale_idx=Int[], zero_sub=1.0)
-
-Construct a scale vector so that, ideally, θ0 = ones and p = scales .* θ reproduces p0.
-- For indices in `noscale_idx`, scale is set to 1.0.
-- For zero p0 entries, use `zero_sub` to avoid zero scale; θ0 at those indices becomes p0/zero_sub (often 0).
-Returns (θ0, scales).
-"""
-function build_scales_from_p0(p0::AbstractVector{<:Real}; 
-                              noscale_idx::AbstractVector{<:Integer}=Int[], 
+function build_scales_from_p0(p0::AbstractVector{<:Real};
+                              noscale_idx::AbstractVector{<:Integer}=Int[],
                               zero_sub::Real=1.0)
     L = length(p0)
     s = similar(p0, Float64)
@@ -121,92 +45,175 @@ function build_scales_from_p0(p0::AbstractVector{<:Real};
             s[i] = (p0[i] == 0) ? float(zero_sub) : float(p0[i])
         end
     end
-    θ0 = p0 ./ s   # equals ones except where p0==0 or noscale indices
+    θ0 = p0 ./ s
     return θ0, s
 end
 
+"""
+    build_scales(params; zero_sub=1.0) -> (θ0, scales)
+
+Compatibility wrapper for older code; does not protect any indices.
+Prefer `build_scales_from_p0` when you know which indices should not be scaled.
+"""
+build_scales(params::AbstractVector{<:Real}; zero_sub::Real=1.0) =
+    build_scales_from_p0(params; noscale_idx=Int[], zero_sub)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Index inference for the generic model (weights, K_dyn)
+# ─────────────────────────────────────────────────────────────────────────────
 
 """
-    fcs_fit(model::Function, lag_times, corr_data, p0; 
-            wt=nothing, n_diff=nothing, scales=nothing, zero_sub=1.0, kwargs...)
+    infer_noscale_indices(spec::FCSModelSpec, p0) -> Vector{Int}
 
-Fit with LsqFit using parameter normalization.
-- If `scales` is `nothing`, they are inferred from `p0` so that θ0 ≈ ones.
-- For diffusion mixture models, pass `n_diff`.
-- `wt` (if provided) is forwarded as `weights=wt`.
-Returns the LsqFit result and also `scales` so you can recover physical params.
+Return 1-based indices in `p0` that should **not** be scaled:
+- mixture weights (`n_diff-1` of them, if any),
+- dynamic fractions `K_dyn` (the last `m` dynamic slots).
+
+This mirrors the parameter layout used by `_eval(spec, t, p; scales)`.
 """
-function fcs_fit(model::Function, lag_times::AbstractVector, 
-                 corr_data::AbstractVector, p0::AbstractVector;
+function infer_noscale_indices(spec::FCSModelSpec, p0::AbstractVector)
+    L = length(p0)
+    idxs = Int[]
+
+    idx = 2 # g0
+    isnothing(spec.offset) && (idx += 1) # offset
+    (spec.dim.sym === :d3) && (idx += 1) # κ
+
+    # 4) diffusion times (or w0 when diffusivity is fixed)
+    n = spec.n_diff
+    τ_end = idx + n - 1
+    τ_end ≤ L || return idxs  # let caller fail later; here we just avoid OOB
+    idx = τ_end + 1
+
+    # 5) anomalous exponents
+    if spec.anom.sym === :global
+        idx += 1
+    elseif spec.anom.sym === :perpop
+        α_end = idx + n - 1
+        α_end ≤ L || return idxs
+        idx = α_end + 1
+    end
+
+    # 6) weights (n-1)
+    if n > 1
+        w_start = idx
+        w_end = w_start + (n - 1) - 1
+        w_end ≤ L || return idxs
+        append!(idxs, w_start:w_end)
+        idx = w_end + 1
+    end
+
+    # 7) dynamics: τ_dyn[1..m], K_dyn[1..m]
+    total_extra = L - (idx - 1)
+    m = _ndyn_from_len(total_extra)
+    if m > 0
+        # τ_dyn: idx .. idx+m-1
+        # K_dyn: idx+m .. idx+2m-1  ← these should NOT be scaled
+        k_start = idx + m
+        k_end = idx + 2m - 1
+        append!(idxs, k_start:k_end)
+    end
+
+    return idxs
+end
+
+"""
+    fcs_fit(spec::FCSModelSpec, lag_times, corr_data, p0;
+            σ=nothing, wt=nothing, scales=nothing, zero_sub=1.0,
+            lower=nothing, upper=nothing, kwargs...) -> (fit, scales)
+
+Fit the generic FCS model (described by `spec`) to data using `LsqFit.curve_fit`,
+with parameter normalization.
+
+- If `scales` is `nothing`, they are inferred from `p0` so that `θ0 ≈ ones`, while
+  *not* scaling mixture weights and K-dynamics (found via `infer_noscale_indices`).
+- If `σ` is given and `wt` is not, weights are set to `1 ./ σ.^2`. Otherwise the
+  provided `wt` is used; if both are `nothing`, the fit is unweighted.
+- Bounds (`lower`, `upper`) are given in **physical** units and internally normalized
+  to `θ`-space by dividing by `scales`.
+
+Returns `(fit::LsqFit.LsqFitResult, scales::Vector)`.
+"""
+function fcs_fit(spec::FCSModelSpec, times::AbstractVector, 
+                 data::AbstractVector, p0::AbstractVector;
                  σ::Union{Nothing,AbstractVector}=nothing,
                  wt::Union{Nothing,AbstractVector}=nothing,
-                 n_diff::Union{Nothing,Int}=nothing,
                  scales::Union{Nothing,AbstractVector}=nothing,
-                 ics::Union{Nothing,AbstractVector{Int}}=nothing,
-                 diffusivity::Union{Nothing,Real}=nothing,
-                 offset::Union{Nothing,Real}=nothing,
-                 zero_sub::Real=1.0, kwargs...)
-    # consistency checks
-    length(lag_times) == length(corr_data) ||
-        throw(ArgumentError("Lag times and correlation values must be of equal length."))
-    !isnothing(wt) && (length(wt) == length(lag_times) ||
-        throw(ArgumentError("Weights must have same size as lag times and data.")))
-    !isnothing(σ) && (length(σ) == length(lag_times) ||
-        throw(ArgumentError("Standard deviations must have same size as lag times and data.")))
+                 zero_sub::Real=1.0, lower=nothing, upper=nothing,
+                 kwargs...)
+    # basic consistency checks
+    N = length(times)
+    N == length(data) || throw(ArgumentError("Lag times and correlation values must be of equal length."))
+    if wt !== nothing
+        length(wt) == N || throw(ArgumentError("Weights must have same size as lag times and data."))
+    end
+    if σ !== nothing
+        length(σ) == N || throw(ArgumentError("Standard deviations must have same size as lag times and data."))
+    end
 
-    if isnothing(wt)
-        if isnothing(σ) # empty array => equal weights
-            wt = ones(eltype(corr_data), length(corr_data))
-        else # std devs. are given so use 1/σ² weight
-            wt = @. 1 / σ^2
+    # prefer explicit `wt`; otherwise derive from σ; otherwise unweighted.
+    local weights = wt
+    if weights === nothing 
+        if σ !== nothing
+            weights = @. 1 / σ^2
+        else
+            weights = ones(N)
         end
     end
-    (isnothing(wt) && !isnothing(σ)) && ()
 
-    # infer model name to pick non-scaled indices
-    mname = nameof(model)  # Symbol if model is a named function
-    model_sym = mname isa Symbol ? mname : :unknown
-
-    # Decide which indices should not be scaled
-    noscale_idx = infer_noscale_indices(model_sym, p0; n_diff, offset)
+    # Indices that should not be scaled (weights + K_dyn)
+    noscale_idx = infer_noscale_indices(spec, p0)
 
     # Build scales if not provided; get normalized θ0
-    if isnothing(scales)
-        θ0, scales_ = build_scales_from_p0(p0; noscale_idx=noscale_idx, zero_sub=zero_sub)
+    if scales === nothing
+        θ0, scales_ = build_scales_from_p0(p0; noscale_idx, zero_sub)
     else
-        length(scales) == length(p0) || throw(ArgumentError("Provided scales length mismatch."))
+        length(scales) == length(p0) ||
+            throw(ArgumentError("Provided scales length mismatch."))
         θ0 = p0 ./ scales
         scales_ = scales
     end
 
-    # Build a two-arg model for LsqFit that maps θ → p
-    model2 = isnothing(n_diff) ?
-        ((x, θ) -> model(x, θ; scales=scales_, ics, diffusivity, offset)) :
-        ((x, θ) -> model(x, θ; scales=scales_, ics, n_diff, offset))
+    # Two-arg model for LsqFit that maps θ → p, then evaluates the generic model
+    model = FCSModel(; spec, scales=scales_)
 
-    # Extract optional bounds/weights from kwargs
-    lower_in = get(kwargs, :lower, nothing)
-    upper_in = get(kwargs, :upper, nothing)
-    filtered_kwargs = (; (k => v for (k,v) in kwargs if !(k in (:lower, :upper)))...)
-
+    # Normalize bounds to θ-space if provided
     normalize_bounds(b) = b === nothing ? nothing :
         (length(b) == length(scales_) ? b ./ scales_ :
-        throw(ArgumentError("lower/upper must have length $(length(scales_))")))
+         throw(ArgumentError("lower/upper must have length $(length(scales_))")))
+    lowerθ = normalize_bounds(lower)
+    upperθ = normalize_bounds(upper)
 
-    lowerθ = normalize_bounds(lower_in)
-    upperθ = normalize_bounds(upper_in)
-
-    # Fitting
-    x = collect(lag_times)
+    # Fit
+    x = collect(times)
     fit = if (lowerθ !== nothing) && (upperθ !== nothing)
-        curve_fit(model2, x, corr_data, wt, θ0; lower = lowerθ, upper = upperθ, filtered_kwargs...) 
+        curve_fit(model, x, data, weights, θ0; lower=lowerθ, upper=upperθ, kwargs...)
     elseif (lowerθ !== nothing)
-        curve_fit(model2, x, corr_data, wt, θ0; lower = lowerθ, filtered_kwargs...)
+        curve_fit(model, x, data, weights, θ0; lower=lowerθ, kwargs...)
     elseif (upperθ !== nothing)
-        curve_fit(model2, x, corr_data, wt, θ0; upper = upperθ, filtered_kwargs...)
+        curve_fit(model, x, data, weights, θ0; upper=upperθ, kwargs...)
     else
-        curve_fit(model2, x, corr_data, wt, θ0; filtered_kwargs...)
+        curve_fit(model, x, data, weights, θ0; kwargs...)
     end
 
     return fit, scales_
+end
+
+"""
+    fcs_fit(m::FCSModel, lag_times, corr_data, p0; kwargs...) -> (fit, scales)
+
+Convenience overload: supply an already-constructed `FCSModel`.
+If `m.scales` is `nothing`, scales are inferred from `p0` as in the `FCSModelSpec` method.
+"""
+function fcs_fit(m::FCSModel, times::AbstractVector,
+                 data::AbstractVector, p0::AbstractVector; kwargs...)
+    # If scales are pre-attached to the model, reuse them
+    if m.scales === nothing
+        fit, scales = fcs_fit(m.spec, times, data, p0; kwargs...)
+        return fit, scales
+    else
+        # Reuse the scales in `m` and bypass auto-scaling
+        return fcs_fit(m.spec, times, data, p0; scales=m.scales, kwargs...)
+    end
 end

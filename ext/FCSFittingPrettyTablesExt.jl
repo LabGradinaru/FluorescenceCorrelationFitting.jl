@@ -3,26 +3,23 @@ module FCSFittingPrettyTablesExt
 using PrettyTables
 using LsqFit
 
-import FCSFitting: sigstr, fcs_table, infer_parameter_list, 
+import FCSFitting: FCSModelSpec, sigstr, fcs_table, infer_parameter_names, 
                    τD, parameters, errors, SI_PREFIXES, aic, 
                    aicc, bic, bicc, chi_squared, ljung_box, ww_test
 
 
 """
-    fcs_table(model, fit, scales; backend=:html, n_diff=nothing, diffusivity=nothing, gof_metric=bic)
+    fcs_table(spec, fit, scales; backend=:html, gof_metric=bic)
 
-Render a **parameter table** from an `LsqFitResult`, including uncertainties and a goodness-of-fit metric.
+Render a **parameter table** from a `fcs_fit` returned `LsqFitResult`, including uncertainties and a goodness-of-fit metric.
 
 # Arguments
-- `model::Function` — Used to determine `model_name` for labeling.
+- `spec::FCSModelSpec` — Used to interpret the parameter vector based on the input model specifications
 - `fit::LsqFit.LsqFitResult` — Result from `fcs_fit`.
 - `scales::AbstractVector` — Multiplicative scaling from fit space to physical space.
 
 # Keywords
 - `backend::Symbol=:html` — `PrettyTables` backend (`:html`, `:unicode`, `:latex`, etc.).
-- `n_diff::Union{Nothing,Int}` — Required for `*_mdiff` models to label multi-species parameters.
-- `diffusivity::Union{Nothing,Real}` — If provided, both `τ_D` and `w0` are displayed.
-- `offset::Union{Nothing,Real} — If provided, the offset is removed from the display.`
 - `gof_metric::Function=bic` — A function `gof_metric(fit)::Real` (e.g., `aic`, `aicc`, `bic`, `bicc`).
 - `units::Union{Nothing, AbstractVector{String}}` — If provided, rescales parameter values to the 
                                                     corresponding SI prefix
@@ -42,21 +39,14 @@ and a source note with the chosen GoF metric.
 If `diffusivity` is provided, `τ_D` is computed and inserted at the top; the simple error propagation
 assumes no uncertainty in `diffusivity`.
 """
-function fcs_table(model::Function, fit::LsqFit.LsqFitResult, scales::AbstractVector; 
-                   backend::Symbol=:html, n_diff::Union{Nothing,Int}=nothing, 
-                   diffusivity::Union{Nothing, Real}=nothing, 
-                   offset::Union{Nothing, Real}=nothing,
-                   gof_metric::Function=bic,
+function fcs_table(spec::FCSModelSpec, fit::LsqFit.LsqFitResult, scales::AbstractVector; 
+                   backend::Symbol=:html, gof_metric::Function=bic,
                    units::Union{Nothing, AbstractVector{String}}=nothing)
-
     vals = parameters(fit, scales)
     errs = errors(fit, scales)
-
-    mname = nameof(model)  # Symbol if model is a named function
-    model_sym = mname isa Symbol ? mname : :unknown
     
     # Build parameter list (names) in the same order as values
-    parameter_list = infer_parameter_list(model_sym, vals; n_diff, diffusivity, offset)
+    parameter_list = infer_parameter_names(spec, vals)
 
     # Trim to the common length
     n = min(length(parameter_list), length(vals), length(errs))

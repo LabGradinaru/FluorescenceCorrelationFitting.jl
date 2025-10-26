@@ -1,7 +1,7 @@
 name = "FCSFitting"
 uuid = "4b8222f9-91d6-4fc3-8988-c3d342909eae"
 authors = ["Aiyan Brown <aiyan.brown@mail.utoronto.ca>"]
-version = "0.4.1"
+version = "0.5.0"
 
 [deps]
 LsqFit = "2fda8390-95c7-5789-9bda-21331edee243"

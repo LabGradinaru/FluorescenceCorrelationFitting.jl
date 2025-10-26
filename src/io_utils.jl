@@ -58,62 +58,86 @@ end
 
 
 """
-    infer_parameter_list(model_name, params; n_diff=nothing)
+    expected_parameter_names(spec) -> Vector{String}
+
+Return the human-readable parameter ordering required by `FCSModel(spec)`.
+Names reflect how `_eval` interprets the parameter vector given the `spec`, including:
+- current correlation
+- optional offset,
+- structure factor (3D),
+- diffusion slots (either τD or w0 depending on `diffusivity`),
+- anomalous exponents according to `anom`,
+- mixture weights (n_diff-1),
+- dynamics (τ_dyn..., K_dyn...) in that order.
+
+This does **not** validate lengths; it just labels the sequence.
+Refer to `infer_parameter_names` if the given parameter vector interpretation is of interest.
+"""
+function expected_parameter_names(spec::FCSModelSpec)
+    names = _no_dynamics_params(spec)
+    push!(names, DYNTIME_NAME * " [1:m] [s]")
+    push!(names, DYNFRAC_NAME * " [1:m]")
+    
+    return names
+end
+
+"""
+    infer_parameter_names(spec, params) -> Vector{String}
 
 Infer the names of parameters used in the fitting based on the model name and
-parameter vector length. The returned names follow the same ordering as the
-model parameter vectors:
-- base parameters
-- all dynamic times (τ_dyn)
-- all dynamic fractions (K_dyn)
+parameter vector length. Names reflect how `_eval` interprets the vector 
+`params` given the `spec`:
+- current correlation
+- optional offset,
+- structure factor (3D),
+- diffusion slots (either τD or w0 depending on `diffusivity`),
+- anomalous exponents according to `anom`,
+- mixture weights (n_diff-1),
+- dynamics (τ_dyn..., K_dyn...) in that order.
 """
-function infer_parameter_list(model_name::Symbol, params::AbstractVector; 
-                              n_diff::Union{Nothing,Int}=nothing, 
-                              diffusivity::Union{Nothing,Real}=nothing,
-                              offset::Union{Nothing,Real}=nothing)
+function infer_parameter_names(spec::FCSModelSpec, params::AbstractVector)
     L = length(params)
+    names = _no_dynamics_params(spec)
+    m = _ndyn_from_len(L - length(names))
+
+    append!(names, [DYNTIME_NAME * " $i [s]" for i in 1:m])
+    append!(names, [DYNFRAC_NAME * " $i" for i in 1:m])
+
+    return names
+end
+
+function _no_dynamics_params(spec::FCSModelSpec)
     names = String[]
-
-    _m_from = base_len -> _ndyn_from_len(L - base_len)
-
     push!(names, G0_NAME)
-    isnothing(offset) && push!(names, OFF_NAME)
+    isnothing(spec.offset) && push!(names, OFF_NAME)
+    spec.dim.sym === :d3 && push!(names, STRUCT_NAME)
 
-    if model_name === :fcs_2d
-        push!(names, isnothing(diffusivity) ? DIFFTIME_NAME * " [s]" : BEAM_NAME * " [m]")
-
-    elseif model_name === :fcs_2d_mdiff
-        isnothing(n_diff) && throw(ArgumentError("n_diff required for fcs_2d_mdiff"))
-        append!(names, [DIFFTIME_NAME * " $i [s]" for i in 1:n_diff])
-        n_diff > 1 && (append!(names, [DIFFFRAC_NAME * " $i" for i in 1:(n_diff-1)]))
-
-    elseif model_name == :fcs_2d_anom
-        push!(names, isnothing(diffusivity) ? DIFFTIME_NAME * " [s]" : BEAM_NAME * " [m]")
-        push!(names, ANOM_NAME)
-    
-    elseif model_name == :fcs_2d_anom_mdiff
-        isnothing(n_diff) && throw(ArgumentError("n_diff required for fcs_2d_anom_mdiff"))
-        append!(names, [DIFFTIME_NAME * " $i [s]" for i in 1:n_diff])
-        append!(names, [ANOM_NAME * " $i" for i in 1:n_diff])
-        n_diff > 1 && (append!(names, [DIFFFRAC_NAME * " $i" for i in 1:(n_diff-1)]))
-
-    elseif model_name === :fcs_3d
-        push!(names, STRUCT_NAME)
-        push!(names, isnothing(diffusivity) ? DIFFTIME_NAME * " [s]" : BEAM_NAME * " [m]")
-        
-    elseif model_name === :fcs_3d_mdiff
-        isnothing(n_diff) && throw(ArgumentError("n_diff required for fcs_3d_mdiff"))
-        push!(names, STRUCT_NAME)
-        append!(names, [DIFFTIME_NAME * " $i [s]" for i in 1:n_diff])
-        n_diff > 1 && (append!(names, [DIFFFRAC_NAME * " $i" for i in 1:(n_diff-1)]))
-
-    else
-        return String[]
+    # τD slots (or w0 if D fixed)
+    base_label = BEAM_NAME
+    base_unit = "[m]"
+    if isnothing(spec.diffusivity)
+        base_label = DIFFTIME_NAME
+        base_unit = "[s]"
+    end
+    for i in 1:spec.n_diff
+        push!(names, spec.n_diff == 1 ? base_label*" "*base_unit : "$(base_label) $i $(base_unit)")
     end
 
-    m = _m_from(length(names))
-    append!(names, [DYNTIME_NAME * " $(i) [s]" for i in 1:m])
-    append!(names, [DYNFRAC_NAME * " $(i)" for i in 1:m])
+    # anomalous exponents
+    if spec.anom.sym === :global
+        push!(names, ANOM_NAME)
+    elseif spec.anom.sym === :perpop
+        for i in 1:spec.n_diff
+            push!(names, ANOM_NAME * " $i")
+        end
+    end
+
+    # weights (n_diff - 1)
+    if spec.n_diff > 1
+        for i in 1:(spec.n_diff-1)
+            push!(names, DIFFFRAC_NAME * " $i")
+        end
+    end
 
     return names
 end
@@ -152,12 +176,12 @@ function sigstr(x::Real, s::Integer=5)
 end
 
 """
-    fcs_plot(model, ch, θ0; residuals=true, color1=:deepskyblue3, color2=:orangered2, color3=:steelblue4, kwargs...)
+    fcs_plot(spec, ch, θ0; residuals=true, color1=:deepskyblue3, color2=:orangered2, color3=:steelblue4, kwargs...)
 
 Fit and plot an FCS channel with optional residuals.
 
 # Arguments
-- `model::Function` — Model with signature `model(τ, θ; diffusivity=nothing, ...) -> Ĝ`.
+- `spec::FCSModelSpec` — Specifications for an FCS fitting model.
 - `ch::FCSChannel` — Data to fit.
 - `θ0::AbstractVector` — Initial parameter guess.
 
@@ -170,21 +194,22 @@ Fit and plot an FCS channel with optional residuals.
 - `(fig::Makie.Figure, fit::LsqFit.LsqFitResult, scales::AbstractVector)`
 
 # Notes
-Delegates to the internal `_fcs_plot` methods. Uses log-scaled τ axis.
+- Delegates to the internal `_fcs_plot` methods and subsequently to `fcs_fit`.
+- Uses log-scaled τ axis.
 """
-function fcs_plot(model::Function, ch::FCSChannel, θ0::AbstractVector; 
+function fcs_plot(spec::FCSModelSpec, ch::FCSChannel, θ0::AbstractVector; 
                   residuals::Bool=true, color1=:deepskyblue3, 
                   color2=:orangered2, color3=:steelblue4, kwargs...) 
     if residuals
-        _fcs_plot(model, ch, θ0, color1, color2, color3; kwargs...)
+        _fcs_plot(spec, ch, θ0, color1, color2, color3; kwargs...)
     else
-        _fcs_plot(model, ch, θ0, color1, color2; kwargs...)
+        _fcs_plot(spec, ch, θ0, color1, color2; kwargs...)
     end
 end
 
 
 """
-    _fcs_plot(model, τ, G, θ0; kwargs...) -> fig, fit, scales
+    _fcs_plot(spec, τ, G, θ0; kwargs...) -> fig, fit, scales
 
 Requires `CairoMakie` (and `LaTeXStrings` for math labels).
 """

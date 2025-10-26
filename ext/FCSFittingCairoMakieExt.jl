@@ -3,16 +3,16 @@ module FCSFittingCairoMakieExt
 using CairoMakie
 using LsqFit
 using LaTeXStrings
-import FCSFitting: FCSChannel, _fcs_plot, resid_acf_plot, fcs_fit, acf
+import FCSFitting: FCSModelSpec, FCSModel, FCSChannel, _fcs_plot, resid_acf_plot, fcs_fit, acf
 
 
 """
-    _fcs_plot(model, ch, θ0, color1, color2, color3; fig=nothing, fontsize=20, kwargs...)
+    _fcs_plot(spec, ch, θ0, color1, color2, color3; fig=nothing, fontsize=20, kwargs...)
 
-Internal: fit `ch` with `model` via `fcs_fit` and render **data + fit + residuals**.
+Internal: fit `ch` with a model specified by `spec` via `fcs_fit` and render **data + fit + residuals**.
 
 # Arguments
-- `model::Function`, `ch::FCSChannel`, `θ0::AbstractVector` — See `fcs_plot`.
+- `spec::FCSModelSpec`, `ch::FCSChannel`, `θ0::AbstractVector` — See `fcs_plot`.
 
 # Keywords
 - `color1`, `color2`, `color3` — Colors for scatter, fit, and residuals.
@@ -26,11 +26,11 @@ Internal: fit `ch` with `model` via `fcs_fit` and render **data + fit + residual
 # Notes
 Creates two stacked axes if no axes exist in `fig`: top = `G(τ)`, bottom = residuals.
 """
-function _fcs_plot(model::Function, ch::FCSChannel, θ0::AbstractVector, 
+function _fcs_plot(spec::FCSModelSpec, ch::FCSChannel, θ0::AbstractVector, 
                    color1::Symbol, color2::Symbol, color3::Symbol; 
                    fig::Union{Nothing,Makie.Figure}=nothing, 
                    fontsize::Int = 20, kwargs...)
-    fit, scales = fcs_fit(model, ch.τ, ch.G, θ0; σ = ch.σ, kwargs...)
+    fit, scales = fcs_fit(spec, ch.τ, ch.G, θ0; σ = ch.σ, kwargs...)
 
     # Create or reuse a figure
     fig = isnothing(fig) ? Figure(size=(700, 600); fontsize) : fig
@@ -60,17 +60,10 @@ function _fcs_plot(model::Function, ch::FCSChannel, θ0::AbstractVector,
     scatter!(top_ax, ch.τ, ch.G; markersize=10, color=color1,
              strokewidth=1, strokecolor=:black, alpha=0.7)
 
-    n_diff = get(kwargs, :n_diff, nothing)
-    isnothing(n_diff) ?       
-        lines!(top_ax, ch.τ, 
-               model(ch.τ, fit.param .* scales;
-                     diffusivity = get(kwargs, :diffusivity, nothing),
-                     offset = get(kwargs, :offset, nothing));
-               linewidth=3, color=color2, alpha=0.9) :
-        lines!(top_ax, ch.τ, 
-               model(ch.τ, fit.param .* scales; n_diff,
-                     offset = get(kwargs, :offset, nothing));
-               linewidth=3, color=color2, alpha=0.9)
+    # Generate model that fit the data and plot it
+    model = FCSModel(; spec, scales)    
+    lines!(top_ax, ch.τ, model(ch.τ, fit.param);
+           linewidth=3, color=color2, alpha=0.9)
 
     # Plot residuals on the bottom axis
     scatterlines!(bot_ax, ch.τ, fit.resid; color=color3,
@@ -80,12 +73,12 @@ function _fcs_plot(model::Function, ch::FCSChannel, θ0::AbstractVector,
 end
 
 """
-    _fcs_plot(model, ch, θ0, color1, color2; fig=nothing, fontsize=20, kwargs...)
+    _fcs_plot(spec, ch, θ0, color1, color2; fig=nothing, fontsize=20, kwargs...)
 
-Internal: fit `ch` with `model` via `fcs_fit` and render **data + fit** (no residuals).
+Internal: fit `ch` with a model specified by `spec` via `fcs_fit` and render **data + fit** (no residuals).
 
 # Arguments
-- `model::Function`, `ch::FCSChannel`, `θ0::AbstractVector` — See `fcs_plot`.
+- `spec::FCSModelSpec`, `ch::FCSChannel`, `θ0::AbstractVector` — See `fcs_plot`.
 
 # Keywords
 - `color1`, `color2` — Colors for scatter and fit.
@@ -99,11 +92,11 @@ Internal: fit `ch` with `model` via `fcs_fit` and render **data + fit** (no resi
 # Notes
 Creates a single log-τ axis if none exists in `fig`.
 """
-function _fcs_plot(model::Function, ch::FCSChannel, θ0::AbstractVector, 
+function _fcs_plot(spec::FCSModelSpec, ch::FCSChannel, θ0::AbstractVector, 
                    color1::Symbol, color2::Symbol; 
                    fig::Union{Nothing,Makie.Figure}=nothing, 
                    fontsize::Int = 20, kwargs...)
-    fit, scales = fcs_fit(model, ch.τ, ch.G, θ0; σ = ch.σ, kwargs...)
+    fit, scales = fcs_fit(spec, ch.τ, ch.G, θ0; σ = ch.σ, kwargs...)
 
     fig = isnothing(fig) ? Figure(size=(700, 600); fontsize) : fig
 
@@ -118,19 +111,12 @@ function _fcs_plot(model::Function, ch::FCSChannel, θ0::AbstractVector,
                   xscale = log10)
     end
 
-    scatter!(ax, ch.τ, ch.G; markersize=10, color=color1, strokewidth=1, strokecolor=:black, alpha=0.7)
+    scatter!(ax, ch.τ, ch.G; markersize=10, color=color1, 
+             strokewidth=1, strokecolor=:black, alpha=0.7)
 
-    n_diff = get(kwargs, :n_diff, nothing)
-    isnothing(n_diff) ?       
-        lines!(ax, ch.τ, 
-               model(ch.τ, fit.param .* scales;
-                     diffusivity = get(kwargs, :diffusivity, nothing),
-                     offset = get(kwargs, :offset, nothing));
-               linewidth=3, color=color2, alpha=0.9) :
-        lines!(ax, ch.τ, 
-               model(ch.τ, fit.param .* scales; n_diff,
-                     offset = get(kwargs, :offset, nothing));
-               linewidth=3, color=color2, alpha=0.9)
+    model = FCSModel(; spec, scales)    
+    lines!(top_ax, ch.τ, model(ch.τ, fit.param);
+           linewidth=3, color=color2, alpha=0.9)
 
     return fig, fit, scales
 end
