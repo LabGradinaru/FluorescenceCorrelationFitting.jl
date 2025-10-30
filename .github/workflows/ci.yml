@@ -45,6 +45,7 @@ jobs:
       
       # 3) Upload to Codecov
       - name: Upload coverage to Codecov
+        if: matrix.os == 'ubuntu-latest' && matrix.version == '1'
         uses: codecov/codecov-action@v4
         with:
           files: lcov.info

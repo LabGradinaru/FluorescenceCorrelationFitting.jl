@@ -21,43 +21,6 @@ const DYNFRAC_NAME = "Dynamic population fraction"
 
 
 """
-    FCSChannel(name, τ, G, σ)
-
-A single correlation **channel** for FCS data.
-
-# Fields
-- `name::String` — Channel label (e.g., `"G_DD"`, `"G_DA"`, or `"G[1]"`).
-- `τ::Vector{Float64}` — Lag times in seconds (same length as `G`).
-- `G::Vector{Float64}` — Correlation values.
-- `σ::Union{Nothing,Vector{Float64}}` — Optional per-lag standard deviations (same length as `G` if present).
-
-# Notes
-All vectors are assumed to be aligned element-wise (`τ[i]` ↔ `G[i]` ↔ `σ[i]`).
-"""
-struct FCSChannel
-    name::String                 # e.g. "G_DD" or "G_DA"
-    τ::Vector{Float64}           # lag times (s)
-    G::Vector{Float64}           # correlation values
-    σ::Union{Nothing,Vector{Float64}}  # std dev per lag (optional)
-end
-"""
-    FCSData(channels, metadata, source)
-
-A container for **multi-channel** FCS data plus provenance.
-
-# Fields
-- `channels::Vector{FCSChannel}` — One or more correlation channels sharing a `τ` grid.
-- `metadata::Dict{String,Any}` — Arbitrary key-value info (sample, T, NA, λ, pinhole, detector, etc.).
-- `source::String` — Provenance string (e.g., file path or `"in-memory"`).
-"""
-struct FCSData
-    channels::Vector{FCSChannel}
-    metadata::Dict{String,Any}   # sample, T, NA, λ, pinhole, detector, etc.
-    source::String               # filepath or “in-memory”
-end
-
-
-"""
     expected_parameter_names(spec) -> Vector{String}
 
 Return the human-readable parameter ordering required by `FCSModel(spec)`.
@@ -77,7 +40,6 @@ function expected_parameter_names(spec::FCSModelSpec)
     names = _no_dynamics_params(spec)
     push!(names, DYNTIME_NAME * " [1:m] [s]")
     push!(names, DYNFRAC_NAME * " [1:m]")
-    
     return names
 end
 
@@ -109,32 +71,33 @@ end
 function _no_dynamics_params(spec::FCSModelSpec)
     names = String[]
     push!(names, G0_NAME)
-    isnothing(spec.offset) && push!(names, OFF_NAME)
-    spec.dim.sym === :d3 && push!(names, STRUCT_NAME)
+    !hasoffset(spec) && push!(names, OFF_NAME)
+    dim(spec) === d3 && push!(names, STRUCT_NAME)
 
     # τD slots (or w0 if D fixed)
-    base_label = BEAM_NAME
-    base_unit = "[m]"
-    if isnothing(spec.diffusivity)
-        base_label = DIFFTIME_NAME
-        base_unit = "[s]"
+    n = n_diff(spec)
+    base_label = DIFFTIME_NAME
+    base_unit = "[s]"
+    if hasdiffusivity(spec)
+        base_label = BEAM_NAME
+        base_unit = "[m]"
     end
-    for i in 1:spec.n_diff
-        push!(names, spec.n_diff == 1 ? base_label*" "*base_unit : "$(base_label) $i $(base_unit)")
+    @simd for i in 1:n
+        push!(names, n == 1 ? base_label*" "*base_unit : "$(base_label) $i $(base_unit)")
     end
 
     # anomalous exponents
-    if spec.anom.sym === :global
+    if anom(spec) === globe
         push!(names, ANOM_NAME)
-    elseif spec.anom.sym === :perpop
-        for i in 1:spec.n_diff
+    elseif anom(spec) === perpop
+        @simd for i in 1:n
             push!(names, ANOM_NAME * " $i")
         end
     end
 
-    # weights (n_diff - 1)
-    if spec.n_diff > 1
-        for i in 1:(spec.n_diff-1)
+    # weights (n - 1)
+    if n > 1
+        @simd for i in 1:(n-1)
             push!(names, DIFFFRAC_NAME * " $i")
         end
     end
@@ -143,15 +106,15 @@ function _no_dynamics_params(spec::FCSModelSpec)
 end
 
 """
-    sigstr(x::Real, s::Integer=5) -> String
+    sigstr(x, s=5) -> String
 
 Return a compact string with `s` significant digits, using scientific
 notation for very small/large magnitudes (≈ like `"%.sg"`).
 """
 function sigstr(x::Real, s::Integer=5)
-    isnan(x)  && return "NaN"
-    isinf(x)  && return x > 0 ? "Inf" : "-Inf"
-    x == 0    && return "0"
+    isnan(x) && return "NaN"
+    isinf(x) && return x > 0 ? "Inf" : "-Inf"
+    x == 0 && return "0"
 
     ax = abs(float(x))
     # Use scientific notation outside a "nice" range
@@ -175,36 +138,78 @@ function sigstr(x::Real, s::Integer=5)
     end
 end
 
+
 """
-    fcs_plot(spec, ch, θ0; residuals=true, color1=:deepskyblue3, color2=:orangered2, color3=:steelblue4, kwargs...)
+    fcs_plot(fit, τ, g) -> fig, fit    
+    fcs_plot(fit, ch) -> fig, fit
+    fcs_plot(spec, τ, data, p0) -> fig, fit
+    fcs_plot(spec, ch, p0) -> fig, fit
+    fcs_plot(model, τ, data, p0) -> fig, fit
+    fcs_plot(model, ch, p0) -> fig, fit
+    
+Plot the autocorrelation data and its fit by the input FCSModel or FCSModelSpec. 
+Optionally, the weighted residuals between the data and fit are included as a second panel 
+along the bottom.
 
-Fit and plot an FCS channel with optional residuals.
+# Example
+```julia
+using CairoMakie, LaTeXStrings, FCSFitting
 
-# Arguments
-- `spec::FCSModelSpec` — Specifications for an FCS fitting model.
-- `ch::FCSChannel` — Data to fit.
-- `θ0::AbstractVector` — Initial parameter guess.
+# Synthetic example parameters and data: [g0, n_exp_terms, τD, τ_dyn, K_dyn]
+initial_parameters = [1.0, 5.0, 2e-7, 1e-7, 0.1]
+t = range(1e-7, 1e-2; length=256)
+g = model(spec, initial_parameters, t) .+ 0.02 .* randn(length(t))
 
-# Keywords
-- `residuals::Bool=true` — Plot residuals panel if `true`.
-- `color1`, `color2`, `color3` — Colors for data, fit, residuals.
-- `kwargs...` — Passed to `fcs_fit` (e.g., `σ=ch.σ`, `diffusivity`, bounds, etc.).
+# Organize data into a channel for easier handling
+channel = FCSChannel("sample", t, g, nothing)
 
-# Returns
-- `(fig::Makie.Figure, fit::LsqFit.LsqFitResult, scales::AbstractVector)`
+fig, fit = fcs_plot(spec, channel, initial_parameters)
+save("corr1.png", fig)
+```
+
+# Keyword arguments
+- `residuals=true`: Include bottom residuals panel if `true`.
+- `color1`, `color2`, `color3`: Plot colors for data, fit, and residuals, respectively.
+- `kwargs...`: Passed to `fcs_fit`
 
 # Notes
 - Delegates to the internal `_fcs_plot` methods and subsequently to `fcs_fit`.
 - Uses log-scaled τ axis.
 """
-function fcs_plot(spec::FCSModelSpec, ch::FCSChannel, θ0::AbstractVector; 
+function fcs_plot end
+
+function fcs_plot(fit::FCSFitResult, τ::AbstractVector, data::AbstractVector; 
                   residuals::Bool=true, color1=:deepskyblue3, 
-                  color2=:orangered2, color3=:steelblue4, kwargs...) 
+                  color2=:orangered2, color3=:steelblue4, kwargs...)
     if residuals
-        _fcs_plot(spec, ch, θ0, color1, color2, color3; kwargs...)
+        _fcs_plot(fit, τ, data, color1, color2, color3; kwargs...)
     else
-        _fcs_plot(spec, ch, θ0, color1, color2; kwargs...)
+        _fcs_plot(fit, τ, data, color1, color2; kwargs...)
     end
+end
+
+function fcs_plot(fit::FCSFitResult, ch::FCSChannel; kwargs...)
+    return fcs_plot(fit, ch.τ, ch.G; kwargs...)
+end
+
+function fcs_plot(spec::FCSModelSpec, τ::AbstractVector, data::AbstractVector,
+                  p0::AbstractVector; kwargs...)
+    fit = fcs_fit(spec, τ, data, p0; kwargs...)
+    return fcs_plot(fit, τ, data; kwargs...)
+end
+
+fcs_plot(spec::FCSModelSpec, ch::FCSChannel, p0::AbstractVector; kwargs...) = 
+    fcs_plot(spec, ch.τ, ch.G, p0; σ=ch.σ, kwargs...)
+
+function fcs_plot(m::FCSModel, τ::AbstractVector, data::AbstractVector, 
+                  p0::AbstractVector; kwargs...)
+    fit = fcs_fit(m, τ, data, p0; kwargs...)
+    return fcs_plot(fit, τ, data; kwargs...)
+end
+
+function fcs_plot(m::FCSModel, ch::FCSChannel, p0::AbstractVector; kwargs...)
+    fit = fcs_fit(m, ch, p0; kwargs...)
+    return fcs_plot(fit, ch; kwargs...)
 end
 
 
@@ -239,36 +244,3 @@ Requires `DelimitedFiles`. Activate by `using DelimitedFiles` in the session.
 """
 read_fcs(::Any; kwargs...) = 
     error("`read_fcs` requires DelimitedFiles. Load it first: `using DelimitedFiles`.")
-
-
-
-"""
-    parameters(fit, scale) -> Vector
-
-Return **physical-space** parameter estimates as `fit.param .* scale`.
-
-# Arguments
-- `fit::LsqFit.LsqFitResult` — Nonlinear least-squares fit result.
-- `scale::AbstractVector` — Multiplicative scaling vector (same length as `fit.param`).
-
-# Returns
-- `Vector{Float64}` of scaled parameters.
-"""
-parameters(fit::LsqFit.LsqFitResult, scale) = fit.param .* scale
-
-"""
-    errors(fit, scale) -> Vector
-
-Return **standard deviations** of parameters in physical units: `stderror(fit) .* scale`.
-
-# Arguments
-- `fit::LsqFit.LsqFitResult` — Nonlinear least-squares fit result.
-- `scale::AbstractVector` — Multiplicative scaling vector (same length as `fit.param`).
-
-# Returns
-- `Vector{Float64}` of scaled standard errors.
-
-# Notes
-Relies on `LsqFit.stderror`; assumes a well-posed covariance estimate.
-"""
-errors(fit::LsqFit.LsqFitResult, scale) = stderror(fit) .* scale

@@ -40,22 +40,22 @@
     DF = FCSFitting.DYNFRAC_NAME
 
     # 2D, Brownian, single diffuser, free offset
-    spec_2d = FCSModelSpec(; dim=:d2)
+    spec_2d = FCSModelSpec(; dim=FCSFitting.d2)
     @test FCSFitting.expected_parameter_names(spec_2d) ==
         [G0, OFF, "$(RT) [s]", "$(DT) [1:m] [s]", "$(DF) [1:m]"]
 
     # 2D, Brownian, single diffuser, fixed offset (removed from p), still τD slots
-    spec_2d_fixoff = FCSModelSpec(; dim=:d2, offset=0.0)
+    spec_2d_fixoff = FCSModelSpec(; dim=FCSFitting.d2, offset=0.0)
     @test FCSFitting.expected_parameter_names(spec_2d_fixoff)[1:1] == [G0]  # no OFF in front matter
 
     # 2D, diffusion given by w0 (fixed D in spec) → label should be Beam width
-    spec_2d_w0 = FCSModelSpec(; dim=:d2, diffusivity=5e-11)
+    spec_2d_w0 = FCSModelSpec(; dim=FCSFitting.d2, diffusivity=5e-11)
     # Only checking the base portion that changes wording
     base2d = FCSFitting.infer_parameter_names(spec_2d_w0, [0.0, 0.0, 0.0])  # g0, off fixed? no → expect G0, OFF, w0, (no dynamics)
-    @test base2d[1:3] == [G0, OFF, "$(BW) [m]"] # TODO: issue here :/
+    @test base2d[1:3] == [G0, OFF, "$(BW) [m]"]
 
     # 2D, anomalous (global α), n_diff=1
-    spec_2d_ag = FCSModelSpec(; dim=:d2, anom=:global)
+    spec_2d_ag = FCSModelSpec(; dim=FCSFitting.d2, anom=FCSFitting.globe)
     nd_ag = FCSFitting._no_dynamics_params(spec_2d_ag)
     @test nd_ag == [G0, OFF, "$(RT) [s]", AN]
     # With one dynamics block (τ_dyn1, K_dyn1)
@@ -63,17 +63,17 @@
     @test names_ag[end-1:end] == ["$(DT) 1 [s]", "$(DF) 1"]
 
     # 2D, anomalous per-pop, n_diff=2 (α1, α2) + 1 weight
-    spec_2d_ap = FCSModelSpec(; dim=:d2, anom=:perpop, n_diff=2)
+    spec_2d_ap = FCSModelSpec(; dim=FCSFitting.d2, anom=FCSFitting.perpop, n_diff=2)
     nd_ap = FCSFitting._no_dynamics_params(spec_2d_ap)
     @test nd_ap == [G0, OFF, "$(RT) 1 [s]", "$(RT) 2 [s]", "$(AN) 1", "$(AN) 2", "$(WF) 1"]
 
     # 3D, Brownian, single diffuser
-    spec_3d = FCSModelSpec(; dim=:d3)
+    spec_3d = FCSModelSpec(; dim=FCSFitting.d3)
     nd_3d = FCSFitting._no_dynamics_params(spec_3d)
     @test nd_3d == [G0, OFF, ST, "$(RT) [s]"]
 
     # 3D, anomalous (global), with dynamics count inferred from params length
-    spec_3d_ag = FCSModelSpec(; dim=:d3, anom=:global)
+    spec_3d_ag = FCSModelSpec(; dim=FCSFitting.d3, anom=FCSFitting.globe)
     # g0, off, κ, τD, α, (τ1,K1), (τ2,K2)  -> total 5 + 4 = 9
     names_3d_ag = FCSFitting.infer_parameter_names(spec_3d_ag, zeros(9))
     @test names_3d_ag[1:5] == [G0, OFF, ST, "$(RT) [s]", AN]
@@ -97,28 +97,11 @@
     τp = 1e-6:1e-6:1e-4
     Gp = 0.0 .+ 1.0 ./ (1 .+ τp ./ 1e-4)
     chp = FCSChannel("G[1]", collect(τp), Gp, nothing)
-    spec_for_plot = FCSModelSpec(; dim=:d2, anom=:none, n_diff=1)
+    spec_for_plot = FCSModelSpec(; dim=FCSFitting.d2, anom=FCSFitting.none, n_diff=1)
 
     @test_throws ErrorException FCSFitting.fcs_plot(spec_for_plot, chp, [1.0, 0.0, 1e-3])
     @test_throws ErrorException FCSFitting._fcs_plot(spec_for_plot, chp, [1.0, 0.0, 1e-3])
     @test_throws ErrorException FCSFitting.resid_acf_plot([0.1, -0.1, 0.0])
     @test_throws ErrorException FCSFitting.fcs_table(spec_for_plot, nothing, nothing)
     @test_throws ErrorException FCSFitting.read_fcs("somefile.txt")
-
-
-    # parameters / errors utilities
-    model(x, θ) = @. θ[1] * exp(-x/θ[2]) + θ[3]
-    a_true, b_true, c_true = 1.25, 4.0, 0.05
-    x = range(0, 10; length=200) |> collect
-    y = model(x, [a_true, b_true, c_true])
-
-    θ0 = [1.0, 1.0, 0.0]
-    fit = curve_fit(model, x, y, θ0)
-
-    sc = [2.0, 10.0, 0.5]
-    p_phys = parameters(fit, sc)
-    e_phys = errors(fit, sc)
-
-    @test p_phys ≈ (fit.param .* sc)
-    @test e_phys ≈ (LsqFit.stderror(fit) .* sc)
 end

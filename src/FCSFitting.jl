@@ -6,9 +6,8 @@ export FCSChannel, FCSData,
        read_fcs,
        fcs_plot, fcs_table, 
        resid_acf_plot,
-       parameters, errors,
-       fcs_fit, log_lags,
-       FCSModelSpec,
+       fcs_fit, FCSFitResult,
+       Dim, Scope, FCSModelSpec,
        τD, diffusivity, 
        volume, area, 
        concentration, 
@@ -16,10 +15,11 @@ export FCSChannel, FCSData,
        hydrodynamic
 
 using LsqFit
+using StatsAPI
 
+include("FCSData.jl")
 include("models.jl")
 include("fcs_fit.jl")
-include("gof.jl")
 include("io_utils.jl")
 
 end #module

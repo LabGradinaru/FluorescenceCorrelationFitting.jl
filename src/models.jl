@@ -38,6 +38,7 @@ Calculate the effective volume from fitted FCS parameters.
     κ > 0 || throw(ArgumentError(κ_ERROR))
     return π^(3/2) * w0^3 * κ
 end
+
 """
     area(w0)
 Calculate the area formed by the beam waist `w0`.
@@ -95,6 +96,7 @@ Estimate the **molar concentration** (in mol/L) from FCS fit parameters.
     Neff = B0 / g0
     return Neff / (AVAGADROS * volume(w0, κ) * 1000) # 1000: m^3 → L
 end
+
 """
     surface_density(w0, g0; Ks=[], ics=[0])
 
@@ -134,21 +136,17 @@ Analogue to `concentration` when the a 2d fit is performed.
 end
 
 """
-    hydrodynamic(τD, w0; T=293.0, η=1.0016e-3)
-Calculate the effective hydrodynamic radius of a molecule from its characteristic 
-diffusion time and beam waist using the Stokes-Einstein relation.
-"""
-@inline hydrodynamic(τD::Real, w0::Real; kwargs...) =
-    hydrodynamic(diffusivity(τD, w0); kwargs...)
-"""
-    hydrodynamic(D; T=293.0, η=1.0016e-3, D_err=nothing)
-Calculate the effective hydrodynamic radius of a molecule from its diffusion
-coefficient using the Stokes-Einstein relation.
+    hydrodynamic(D)
+    hydrodynamic(τD, w0)
 
-If an error in the diffusivity is provided, returns the error in Rh estimate
+Calculate the effective hydrodynamic radius of a molecule using the Stokes-Einstein relation.
+
+# Keyword Arguments
+- `T=293.0`: Temperature (in Kelvin)
+- `η=1.0016e-3`: Viscosity of water (Pa⋅s)
+- `D_err=nothing`: Error in the diffusivity. If not `nothing`, returns a Tuple, (Rh, Rh_error)
 """
-@inline function hydrodynamic(D::Real; T::Real=293.0, η=1.0016e-3, 
-                              D_err::Union{Nothing,Real}=nothing)
+@inline function hydrodynamic(D::Real; T::Real=293.0, η=1.0016e-3, D_err=nothing)
     D > 0 || throw(ArgumentError(D_ERROR))
     T > 0 || throw(ArgumentError("Temperature must be positive."))
     η > 0 || throw(ArgumentError("Viscosity must be positive."))
@@ -160,6 +158,154 @@ If an error in the diffusivity is provided, returns the error in Rh estimate
     else
         _scale / D, _scale * D_err / D^2
     end
+end
+
+hydrodynamic(τD::Real, w0::Real; kwargs...) =
+    hydrodynamic(diffusivity(τD, w0); kwargs...)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Public fitting models and types
+# ─────────────────────────────────────────────────────────────────────────────
+
+@enum Dim::UInt8 d2 d3 # Spatial dimension
+@enum Scope::UInt8 none globe perpop # Scope for a variable
+
+"""
+    FCSModelSpec{D, S, OFF, DIFF, NDIFF}(offset, diffusivity, ics)
+    FCSModelSpec(; dim, anom, offset, diffusivity, n_diff, ics)
+    FCSModelSpec(nt)
+    FCSModelSpec(d)
+
+Construct an object which specifies the model for fitting `FCSModelSpec`. 
+The `D` parameter is the spatial dimension, `Dim`, which the diffusion occurs in
+and dictates the diffusion kernel which is used. The `S<:Scope` parameter dictates 
+the presence and scope of the anomalous exponent. `OFF` and `DIFF` determine 
+if offset and diffusion, respectively, are allowed to vary during fitting. 
+`NDIFF` a type corresponding to the number of diffusive components.
+
+# Examples
+```julia
+spec = FCSModelSpec(; dim=d2, anom=none, n_diff=1)  # 2D, normal diffusion, one diffuser
+spec = FCSModelSpec(; dim=d3, anom=global, n_diff=2)  # 3D, one α shared across 2 diffusers
+spec = FCSModelSpec(; dim=d3, anom=perpop, n_diff=2, offset=0.0) # α₁,α₂; fixed offset
+spec = FCSModelSpec(; dim=d3, diffusivity=5e-11, n_diff=1)  # treat τD slot as w0
+```
+"""
+struct FCSModelSpec{D,S,OFF,DIFF,NDIFF}
+    offset::Float64
+    diffusivity::Float64
+    ics::Vector{Int}
+end
+
+# utilities to access the type-encoded flags/values
+dim(::FCSModelSpec{D}) where {D} = D
+anom(::FCSModelSpec{D,S}) where {D,S} = S
+hasoffset(::FCSModelSpec{D,S,OFF}) where {D,S,OFF} = OFF
+hasdiffusivity(::FCSModelSpec{D,S,OFF,DIFF}) where {D,S,OFF,DIFF} = DIFF
+n_diff(::FCSModelSpec{D,S,OFF,DIFF,NDIFF}) where {D,S,OFF,DIFF,NDIFF} = NDIFF
+
+# convenience methods for translating Symbols/ Strings to enums
+_scope_from(x) = x isa Scope ? x :
+                 x === :global ? globe :
+                 x isa Symbol ? Scope(x) :
+                 Scope(Symbol(x))
+_dim_from(x) = x isa Dim ? x : Dim(Symbol(x))
+
+function FCSModelSpec(; dim::Dim=d3, anom::Scope=none,
+                      offset::Union{Nothing,Real}=nothing,
+                      diffusivity::Union{Nothing,Real}=nothing,
+                      n_diff::Integer=1, ics=nothing)
+    OFF = offset !== nothing
+    DIFF = diffusivity !== nothing
+    
+    N = Int(n_diff)
+    N ≥ 1 || throw(ArgumentError("n_diff must be ≥ 1"))
+
+    Dval = _dim_from(dim)
+    Sval = _scope_from(anom)
+    FCSModelSpec{Dval,Sval,OFF,DIFF,N}(
+        offset === nothing ? 0.0 : float(offset),
+        diffusivity === nothing ? 0.0 : float(diffusivity),
+        ics === nothing ? Int[] : Int.(ics)
+    )
+end
+
+FCSModelSpec(nt::NamedTuple) = FCSModelSpec(; nt...)
+FCSModelSpec(d::Dict) = FCSModelSpec(; (Symbol(k)=>v for (k,v) in d)...)
+
+
+Base.@kwdef mutable struct FCSModel <: Function
+    spec::FCSModelSpec
+    scales::Union{Nothing,AbstractVector} = nothing
+end
+(m::FCSModel)(t, p) = _eval(m.spec, t, p; scales=m.scales)
+
+
+function _eval(spec::FCSModelSpec, t, p::AbstractVector; scales=nothing)
+    L = length(p)
+    isnothing(scales) && (scales = ones(L))
+    L == length(scales) || throw(ArgumentError("Scaling and parameter vectors must be of the same length."))
+    sp = scales .* p # scaled parameter vector
+    
+    # current correlation (at lag time = 0)
+    g0 = sp[1]
+
+    # check if the offset is to be allowed to vary in the model
+    # if it is, set the current parameter vector to be `off`
+    idx = 2
+    off = hasoffset(spec) ? spec.offset : (sp[idx]; idx += 1; sp[idx-1])
+
+    # if the model is in three dimensions, collect the structure factor κ
+    κ = dim(spec) === d3 ? (sp[idx]; idx += 1; sp[idx-1]) : nothing
+
+    # diffusion times
+    # if diffusivity is set to a value, the parameters in these 
+    # slots are assumed to be corresponding to w0
+    n = n_diff(spec)
+    τD_end = idx + n - 1
+    L ≥ τD_end || throw(ArgumentError("Parameter vector too short for $n diffusion times."))
+    τDslots = @view sp[idx:τD_end]
+    τDvec = hasdiffusivity(spec) ? [τD(spec.diffusivity, w0) for w0 in τDslots] : collect(τDslots) 
+    idx += n
+
+    # anomalous exponents
+    α = nothing
+    α_scope = anom(spec)
+    if α_scope == globe
+        α = sp[idx] * ones(n); idx += 1
+    elseif α_scope == perpop
+        α_end = idx + n - 1
+        L ≥ α_end || throw(ArgumentError("Parameter vector too short for $n unique anomalous exponents."))
+        α = collect(@view sp[idx:α_end])
+        idx += n
+    end
+
+    # diffusion population weights
+    #TODO: in the future, weights being bounds by unity should be imposed as a non-linear constraint instead
+    if n == 1
+        wts = Float64[]
+    else
+        w_end = idx + n - 2
+        L ≥ w_end || throw(ArgumentError("Parameter vector too short for $(n-1) population weights."))
+        wts = collect(@view sp[idx:w_end])
+        sum(wts) ≤ 1 || throw(ArgumentError("Sum of diffusion population weights must be ≤ 1"))
+        idx = w_end + 1
+    end
+
+    # dynamic contributions to the correlation
+    # TODO: as above. naively, this seems much more challenging however, since it is based on ics within FCSModelSpec
+    m = _ndyn_from_len(L - (idx - 1))
+    ics = isempty(spec.ics) ? ones(Int, m) : spec.ics
+    sum(ics) == m || throw(ArgumentError("Mismatch between dynamics expected in the parameter vector and the independent components."))
+    
+    τdyn = m == 0 ? Float64[] : collect(@view sp[idx:idx+m-1])
+    Kdyn = m == 0 ? Float64[] : collect(@view sp[idx+m:idx+2m-1])
+
+    dyn = m == 0 ? 1.0 : dynamics_factor(t, τdyn, Kdyn, ics)
+    diff = diff_factor(t, κ, τDvec, α, wts)
+
+    return @. off + g0 * diff * dyn
 end
 
 
@@ -286,6 +432,7 @@ end
 
 _eltype(x) = x isa AbstractArray ? eltype(x) : typeof(x)
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Base kernels (unit-amplitude, zero-offset)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -293,17 +440,9 @@ _eltype(x) = x isa AbstractArray ? eltype(x) : typeof(x)
 """Handler for diffusion kernels based on which arguments are not Nothing."""
 @inline function _diff(t, κ, τ, α)
     if isnothing(κ)
-        if isnothing(α)
-            udc_2d(t, τ)
-        else
-            udc_2d(t, τ, α)
-        end
+        isnothing(α) ? udc_2d(t, τ) : udc_2d(t, τ, α)
     else
-        if isnothing(α)
-            udc_3d(t, τ, κ)
-        else
-            udc_3d(t, τ, κ, α)
-        end
+        isnothing(α) ? udc_3d(t, τ, κ) : udc_3d(t, τ, κ, α)
     end
 end
 
@@ -321,184 +460,3 @@ udc_3d(t, τ, κ, α) = @. inv((1 + (t/τ)^α) * sqrt(1 + (t/τ)^α / κ^2))
 
 "Kernel of a dynamic species of fraction `f` and lifetime `τ`."
 dyn(t, τ, f) = @. f * (exp(-t/τ) - 1)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Public fitting models and types
-# ─────────────────────────────────────────────────────────────────────────────
-
-"""
-    Dimension(sym)
-
-Internal wrapper for spatial dimensionality.
-
-- `:d2` — 2D
-- `:d3` — 3D
-
-Users should prefer the keyword constructor `FCSModelSpec(; dim=...)` instead of
-constructing `Dimension` directly.
-"""
-struct Dimension
-    sym::Symbol
-    function Dimension(sym::Symbol)
-        sym ∈ (:d2, :d3) || throw(DomainError(sym, "Dimension must be :d2 or :d3"))
-        new(sym)
-    end
-end
-Dimension(x::AbstractString) = Dimension(Symbol(lowercase(x)))
-Dimension(x::Dimension) = x
-Base.convert(::Type{Dimension}, x) = Dimension(x) 
-
-
-"""
-    Scope(sym)
-
-Internal wrapper for anomalous diffusion scope.
-
-- `:none`   — normal diffusion
-- `:global` — one α shared by all diffusers
-- `:perpop` — one α per diffuser
-
-Users should prefer the keyword constructor `FCSModelSpec(; anom=...)` instead of
-constructing `Scope` directly.
-"""
-struct Scope
-    sym::Symbol
-    function Scope(sym::Symbol)
-        sym ∈ (:none, :global, :perpop) || throw(DomainError(sym, "Scope must be :none, :global, or :perpop"))
-        new(sym)
-    end
-end
-Scope(x::AbstractString) = Scope(Symbol(lowercase(x)))
-Scope(x::Scope) = x
-Base.convert(::Type{Scope}, x) = Scope(x)
-
-
-Base.@kwdef struct FCSModelSpec
-    dim::Dimension
-    anom::Scope = :none
-    offset::Union{Nothing,Float64} = nothing
-    diffusivity::Union{Nothing,Float64} = nothing
-    n_diff::Int = 1
-    ics::Union{Nothing,Vector{Int}} = nothing
-end
-
-function _normalize(spec::FCSModelSpec)
-    dim = convert(Dimension, spec.dim)
-    anom = convert(Scope, spec.anom)
-    off = isnothing(spec.offset)      ? nothing : Float64(spec.offset)
-    Dfix = isnothing(spec.diffusivity) ? nothing : Float64(spec.diffusivity)
-    nd = Int(spec.n_diff); nd ≥ 1 || throw(ArgumentError("n_diff must be ≥ 1"))
-    ics = isnothing(spec.ics) ? nothing : Int.(collect(spec.ics))
-    if anom.sym === :perpop && nd == 1
-        throw(ArgumentError(":perpop anomalous scope requires n_diff > 1"))
-    end
-    return FCSModelSpec(; dim, anom, offset=off, diffusivity=Dfix, n_diff=nd, ics)
-end
-
-"""
-    FCSModelSpec(; dim=:d3, anom=:none, offset=nothing, diffusivity=nothing,
-                   n_diff::Integer=1, ics=nothing)
-
-User-friendly constructor for an FCS model specification.
-
-# Keywords
-- `dim`            — Spatial dimension: `:d2` or `:d3`. (String or `Symbol` accepted.)
-- `anom`           — Anomalous-diffusion scope:
-    - `:none`   → normal diffusion,
-    - `:global` → single α shared by all diffusers,
-    - `:perpop` → one α per diffuser (requires `n_diff > 1`).
-- `offset`         — `nothing` to fit a free offset; or a fixed `Real` value to hold it constant.
-- `diffusivity`    — `nothing` to fit τᴅ directly; or a fixed `Real` diffusivity `D` to interpret the
-                     “τᴅ slots” as beam radii `w₀` and compute `τᴅ = w₀²/(4D)` internally.
-- `n_diff`         — Number of diffusive populations (≥ 1).
-- `ics`            — Independent-component sizes for blinking blocks used by your dynamics:
-                     `nothing` (defaults to independent 1-component blocks) or a vector of nonnegative 
-                     integers whose sum equals the number of dynamics pairs.
-
-# Examples
-```julia
-spec = FCSModelSpec(; dim=:d2, anom=:none, n_diff=1)  # 2D, normal diffusion, one diffuser
-spec = FCSModelSpec(; dim="d3", anom="global", n_diff=2)  # 3D, one α shared across 2 diffusers
-spec = FCSModelSpec(; dim=:d3, anom=:perpop, n_diff=2, offset=0.0) # α₁,α₂; fixed offset
-spec = FCSModelSpec(; dim=:d3, diffusivity=5e-11, n_diff=1)  # treat τD slot as w0
-```
-"""
-FCSModelSpec(nt::NamedTuple) = _normalize(FCSModelSpec(; nt...))
-FCSModelSpec(d::Dict) = _normalize(FCSModelSpec(; (Symbol(k)=>v for (k,v) in d)...))
-
-Base.@kwdef mutable struct FCSModel <: Function
-    spec::FCSModelSpec
-    scales::Union{Nothing,AbstractVector} = nothing
-end
-(m::FCSModel)(t, p) = _eval(m.spec, t, p; scales=m.scales)
-
-
-function _eval(spec::FCSModelSpec, t, p::AbstractVector; scales=nothing)
-    L = length(p)
-    isnothing(scales) && (scales = ones(L))
-    L == length(scales) || throw(ArgumentError("Scaling and parameter vectors must be of the same length."))
-    sp = scales .* p # scaled parameter vector
-    
-    # current correlation (at lag time = 0)
-    g0 = sp[1]
-
-    # check if the offset is to be allowed to vary in the model
-    # if it is, set the current parameter vector to be `off`
-    idx = 2
-    off = isnothing(spec.offset) ? (sp[idx]; idx += 1; sp[idx-1]) : spec.offset
-
-    # if the model is in three dimensions, collect the structure factor κ
-    κ = nothing
-    if spec.dim.sym == :d3
-        κ = sp[idx]; idx += 1
-    end
-
-    # diffusion times
-    # if diffusivity is set to a value, the parameters in these 
-    # slots are assumed to be corresponding to w0
-    n_diff = spec.n_diff
-    τD_end = idx + n_diff - 1
-    L ≥ τD_end || throw(ArgumentError("Parameter vector too short for $n_diff diffusion times."))
-    τDslots = @view sp[idx:τD_end]
-    τDvec = isnothing(spec.diffusivity) ? collect(τDslots) : [τD(spec.diffusivity, w0) for w0 in τDslots]
-    idx += n_diff
-
-    # anomalous exponents
-    α = nothing
-    α_scope = spec.anom.sym
-    if α_scope == :global
-        α = sp[idx] * ones(n_diff); idx += 1
-    elseif α_scope == :perpop
-        α_end = idx + n_diff - 1
-        L ≥ α_end || throw(ArgumentError("Parameter vector too short for $n_diff unique anomalous exponents."))
-        α = collect(@view sp[idx:α_end])
-        idx += n_diff
-    end
-
-    # diffusion population weights
-    #TODO: in the future, weights being bounds by unity should be imposed as a non-linear constraint instead
-    if n_diff == 1
-        wts = Float64[]
-    else
-        w_end = idx + n_diff - 2
-        L ≥ w_end || throw(ArgumentError("Parameter vector too short for $(n_diff-1) population weights."))
-        wts = collect(@view sp[idx:w_end])
-        sum(wts) ≤ 1 || throw(ArgumentError("Sum of diffusion population weights must be ≤ 1"))
-        idx = w_end + 1
-    end
-
-    # dynamic contributions to the correlation
-    # TODO: as above. naively, this seems much more challenging however, since it is based on ics within FCSModelSpec
-    m = _ndyn_from_len(L - (idx - 1))
-    ics = something(spec.ics, ones(Int, m))
-    sum(ics) == m || throw(ArgumentError("Mismatch between dynamics expected in the parameter vector and the independent components."))
-    
-    τdyn = m == 0 ? Float64[] : collect(@view sp[idx:idx+m-1])
-    Kdyn = m == 0 ? Float64[] : collect(@view sp[idx+m:idx+2m-1])
-
-    dyn = m == 0 ? 1.0 : dynamics_factor(t, τdyn, Kdyn, ics)
-    diff = diff_factor(t, κ, τDvec, α, wts)
-
-    return @. off + g0 * diff * dyn
-end

@@ -195,31 +195,31 @@
 
         # 2D Brownian, free offset
         τD = 1e-3
-        spec = FCSFitting.FCSModel(; spec=FCSFitting.FCSModelSpec(; dim=:d2, anom=:none, n_diff=1))
+        spec = FCSFitting.FCSModel(; spec=FCSFitting.FCSModelSpec(; dim=FCSFitting.d2, anom=FCSFitting.none, n_diff=1))
         p = [g0, off, τD]
         @test spec(t, p) ≈ @. off + g0 * FCSFitting.udc_2d(t, τD)
 
         # 2D Brownian, fixed offset in spec (omit offset from p)
-        spec_fixoff = FCSFitting.FCSModel(; spec=FCSFitting.FCSModelSpec(; dim=:d2, anom=:none, n_diff=1, offset=off))
+        spec_fixoff = FCSFitting.FCSModel(; spec=FCSFitting.FCSModelSpec(; dim=FCSFitting.d2, anom=FCSFitting.none, n_diff=1, offset=off))
         p_fixoff = [g0, τD]
         @test spec_fixoff(t, p_fixoff) ≈ @. off + g0 * FCSFitting.udc_2d(t, τD)
 
         # 2D with dynamics (two independent components)
         τs = [1e-5, 1e-4]; Ks = [0.1, 0.2]; ics = [1,1]
-        spec_dyn = FCSFitting.FCSModel(; spec=FCSFitting.FCSModelSpec(; dim=:d2, anom=:none, n_diff=1, ics=ics))
+        spec_dyn = FCSFitting.FCSModel(; spec=FCSFitting.FCSModelSpec(; dim=FCSFitting.d2, anom=FCSFitting.none, n_diff=1, ics=ics))
         p_dyn = vcat(g0, off, τD, τs, Ks)
         dynfac = FCSFitting.dynamics_factor(t, τs, Ks, ics)
         @test spec_dyn(t, p_dyn) ≈ @. off + g0 * FCSFitting.udc_2d(t, τD) * dynfac
 
         # 2D anomalous, global α
         α = 0.8
-        spec_ag = FCSFitting.FCSModel(; spec=FCSFitting.FCSModelSpec(; dim=:d2, anom=:global, n_diff=1))
+        spec_ag = FCSFitting.FCSModel(; spec=FCSFitting.FCSModelSpec(; dim=FCSFitting.d2, anom=FCSFitting.globe, n_diff=1))
         p_ag = [g0, off, τD, α]
         @test spec_ag(t, p_ag) ≈ @. off + g0 * FCSFitting.udc_2d(t, τD, α)
 
         # 2D anomalous, per-population α, mixture of 2 diffusers
         τDs2 = [1e-4, 2e-3]; αs2 = [0.7, 1.0]; wts = [0.3]
-        spec_per = FCSFitting.FCSModel(; spec=FCSFitting.FCSModelSpec(; dim=:d2, anom=:perpop, n_diff=2))
+        spec_per = FCSFitting.FCSModel(; spec=FCSFitting.FCSModelSpec(; dim=FCSFitting.d2, anom=FCSFitting.perpop, n_diff=2))
         p_per = vcat(g0, off, τDs2, αs2, wts)
         mix = @. 0.3*FCSFitting.udc_2d(t, τDs2[1], αs2[1]) + 0.7*FCSFitting.udc_2d(t, τDs2[2], αs2[2])
         @test spec_per(t, p_per) ≈ @. off + g0 * mix
@@ -227,20 +227,20 @@
         # 3D Brownian, free offset
         κ = 10 * rand()
         τD3 = 1e-3
-        spec3d = FCSFitting.FCSModel(; spec=FCSFitting.FCSModelSpec(; dim=:d3, anom=:none, n_diff=1))
+        spec3d = FCSFitting.FCSModel(; spec=FCSFitting.FCSModelSpec(; dim=FCSFitting.d3, anom=FCSFitting.none, n_diff=1))
         p3d = [g0, off, κ, τD3]
         @test spec3d(t, p3d) ≈ @. off + g0 * FCSFitting.udc_3d(t, τD3, κ)
 
         # 3D anomalous, global α
         αg = 0.9
-        spec3d_ag = FCSFitting.FCSModel(; spec=FCSFitting.FCSModelSpec(; dim=:d3, anom=:global, n_diff=1))
+        spec3d_ag = FCSFitting.FCSModel(; spec=FCSFitting.FCSModelSpec(; dim=FCSFitting.d3, anom=FCSFitting.globe, n_diff=1))
         p3d_ag = [g0, off, κ, τD3, αg]
         @test spec3d_ag(t, p3d_ag) ≈ @. off + g0 * FCSFitting.udc_3d(t, τD3, κ, αg)
 
         # 3D anomalous, per-population α, 2 diffusers + dynamics
         τDs3 = [5e-4, 2e-3]; αs3 = [0.8, 1.0]; wts3 = [0.25]
         τdyn = [2e-5]; Kdyn = [0.15]; ics = [1]
-        spec3d_per = FCSFitting.FCSModel(; spec=FCSFitting.FCSModelSpec(; dim=:d3, anom=:perpop, n_diff=2, ics=ics))
+        spec3d_per = FCSFitting.FCSModel(; spec=FCSFitting.FCSModelSpec(; dim=FCSFitting.d3, anom=FCSFitting.perpop, n_diff=2, ics=ics))
         p3d_per = vcat(g0, off, κ, τDs3, αs3, wts3, τdyn, Kdyn)
         dynfac3 = FCSFitting.dynamics_factor(t, τdyn, Kdyn, ics)
         mix3 = @. 0.25*FCSFitting.udc_3d(t, τDs3[1], κ, αs3[1]) + 0.75*FCSFitting.udc_3d(t, τDs3[2], κ, αs3[2])

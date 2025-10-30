@@ -1,10 +1,11 @@
 name = "FCSFitting"
 uuid = "4b8222f9-91d6-4fc3-8988-c3d342909eae"
 authors = ["Aiyan Brown <aiyan.brown@mail.utoronto.ca>"]
-version = "0.5.0"
+version = "0.5.1"
 
 [deps]
 LsqFit = "2fda8390-95c7-5789-9bda-21331edee243"
+StatsAPI = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
 
 [weakdeps]
 DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
@@ -26,6 +27,10 @@ PrettyTables = "3"
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
+LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+PrettyTables = "08abe8d2-0d0c-5749-adfa-8a2ac140af0d"
 
 [targets]
-test = ["Test", "Random"]
+test = ["Test", "Random", "DelimitedFiles", "LaTeXStrings", "CairoMakie", "PrettyTables"]

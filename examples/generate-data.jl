@@ -44,6 +44,23 @@ function sigma_fcs(lags::AbstractVector, G::AbstractVector;
     η .* (1 .+ G) ./ sqrt.(n_pairs)
 end
 
+function log_lags(n_points::Int, τmin::Int, τmax::Int)
+    @assert n_points ≥ 1
+    @assert 0 ≤ τmin ≤ τmax
+    # Work on [τmin+1, τmax+1] in log space, then subtract 1 to get zero-based
+    r = range(log10(τmin + 1), log10(τmax + 1); length=n_points)
+    lags = round.(Int, 10 .^ r .- 1)
+    # Clamp and enforce strict monotonicity
+    @inbounds for i in eachindex(lags)
+        lags[i] = clamp(lags[i], τmin, τmax)
+        if i > 1 && lags[i] ≤ lags[i-1]
+            lags[i] = min(lags[i-1] + 1, τmax)
+        end
+    end
+    # Drop duplicates if τ-range is too small
+    return unique(lags)
+end
+
 # Log-normal jitter with given coefficient of variation (median=1)
 lognormal_scale(cv) = exp(sqrt(log(1 + cv^2)) * randn())
 

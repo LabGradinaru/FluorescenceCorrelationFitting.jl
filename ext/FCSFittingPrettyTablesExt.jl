@@ -2,21 +2,19 @@ module FCSFittingPrettyTablesExt
 
 using PrettyTables
 using LsqFit
+import StatsAPI: aic, aicc, bic
 
-import FCSFitting: FCSModelSpec, sigstr, fcs_table, infer_parameter_names, 
-                   τD, parameters, errors, SI_PREFIXES, aic, 
-                   aicc, bic, bicc, chi_squared, ljung_box, ww_test
+import FCSFitting: FCSFitResult, sigstr, fcs_table, infer_parameter_names, 
+                   τD, SI_PREFIXES, r2
 
 
 """
-    fcs_table(spec, fit, scales; backend=:html, gof_metric=bic)
+    fcs_table(fit; backend=:html, gof_metric=bic, units=nothing)
 
-Render a **parameter table** from a `fcs_fit` returned `LsqFitResult`, including uncertainties and a goodness-of-fit metric.
+Render a **parameter table** from an `FCSFitResult`.
 
 # Arguments
-- `spec::FCSModelSpec` — Used to interpret the parameter vector based on the input model specifications
-- `fit::LsqFit.LsqFitResult` — Result from `fcs_fit`.
-- `scales::AbstractVector` — Multiplicative scaling from fit space to physical space.
+- `fit::FCSFitResult` — Result from `fcs_fit`
 
 # Keywords
 - `backend::Symbol=:html` — `PrettyTables` backend (`:html`, `:unicode`, `:latex`, etc.).
@@ -29,30 +27,20 @@ Prints a table with columns:
 - `"Parameters"` — Human-readable names from `infer_parameter_list(...)`,
 - `"Values"` — `parameters(fit, scales)`,
 - `"Std. Dev."` — `errors(fit, scales)`,
-
 and a source note with the chosen GoF metric.
-
-# Returns
-- The return value of `pretty_table(...)` after printing the table.
-
-# Notes
-If `diffusivity` is provided, `τ_D` is computed and inserted at the top; the simple error propagation
-assumes no uncertainty in `diffusivity`.
 """
-function fcs_table(spec::FCSModelSpec, fit::LsqFit.LsqFitResult, scales::AbstractVector; 
+function fcs_table(fit::FCSFitResult; 
                    backend::Symbol=:html, gof_metric::Function=bic,
                    units::Union{Nothing, AbstractVector{String}}=nothing)
-    vals = parameters(fit, scales)
-    errs = errors(fit, scales)
+    vals = coef(fit);  errs = stderror(fit)
     
     # Build parameter list (names) in the same order as values
-    parameter_list = infer_parameter_names(spec, vals)
+    parameter_list = infer_parameter_names(fit.spec, vals)
 
     # Trim to the common length
     n = min(length(parameter_list), length(vals), length(errs))
     parameter_list = parameter_list[1:n]
-    vals = vals[1:n]
-    errs = errs[1:n]
+    vals = vals[1:n];  errs = errs[1:n]
 
     # argument checks for SI prefix rescaling
     (units === nothing) && (units = fill("",n))
@@ -81,20 +69,15 @@ function fcs_table(spec::FCSModelSpec, fit::LsqFit.LsqFitResult, scales::Abstrac
     end
 
     data = hcat(parameter_list, vals, errs)
+
     # evaluate goodness of fit metric and add it to the table
     gof_val = gof_metric(fit)
     gof_line = " $(nameof(gof_metric)) = $(sigstr(gof_val, 6)) "
 
     # PrettyTables call
-    column_labels = ["Parameters", "Values", "Std. Dev."]
-
     pretty_table(
-        data;
-        backend,
-        column_labels = column_labels,
-        source_notes = gof_line,
-        source_note_alignment = :c,
-        alignment = [:l, :r, :r],
+        data; backend, column_labels = ["Parameters", "Values", "Std. Dev."],
+        source_notes = gof_line, source_note_alignment = :c, alignment = [:l, :r, :r],
         formatters = [(v,i,j)->(j ∈ (2,3) && v isa Number ? sigstr(v, 4) : v)],
     )
 end

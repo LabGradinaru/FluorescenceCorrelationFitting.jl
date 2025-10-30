@@ -2,72 +2,165 @@
 
 *Fitting fluorescence correlation spectroscopy (FCS) data in Julia*
 
-[![codecov.io](https://codecov.io/github/LabGradinaru/FCSFitting/branch/main/graph/badge.svg?token=ZH9L011XZQ)](http://codecov.io/github/LabGradinaru/FCSFitting/branch/main)
+[![CI](https://github.com/LabGradinaru/FCSFitting.jl/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/LabGradinaru/FCSFitting.jl/actions/workflows/ci.yml?query=branch%3Amain)
+[![codecov.io](https://codecov.io/github/LabGradinaru/FCSFitting.jl/branch/main/graph/badge.svg?token=ZH9L011XZQ)](http://codecov.io/github/LabGradinaru/FCSFitting.jl/branch/main)
 
-## Usage details
+**FCSFitting** provides a lightweight, composable toolkit for modeling and fitting FCS autocorrelation curves. The nonlinear least‑squares backend is currently `LsqFit.jl`, with an intended move to `JuMP.jl` in the near future. Optional package extensions enable file I/O, tables, and publication‑quality plots.
 
-If you are new to Julia, read the "Environment and Jupyter kernel creation" section below first.
+> **Status:** private pre‑release repository; APIs subject to change. Target Julia ≥ **1.10**
 
-For most users, the primary access point should be the notebook `examples/fitting.ipynb` which illustrates the key utilities of the package.
-From dataset-to-dataset, the `filepath` variable in cell 2 should be changed, as well as the `model` in cell 3 and the initial parameter estimates and their bounds.
 
-Changes should be made to the initial parameter values which are specified by a vector `p`.
-The parameter vector order depends on which model is selected and the user should refer to the docstrings for detailed references.
-Briefly, for 2-dimensional FCS, `fcs_2d`,
-*   `p[1]` → g0; the zero-lag autocorrelation
-*   `p[2]` → offset; the offset of the correlation from 0
-*   `p[3]` → τD; the diffusion time
-*   `p[4:m]` → τ_dyn; the dynamic lifetimes
-*   `p[m+1:N]` → K_dyn; the fraction corresponding of the population corresponding to the dynamic lifetime.
+## Features
 
-And for 3-dimensional FCS, `fcs_3d`,
-*   `p[1]` → g0; the zero-lag autocorrelation
-*   `p[2]` → offset; the offset of the correlation from 0
-*   `p[3]` → κ; the structure factor `κ = z0/w0`
-*   `p[4]` → τD; the diffusion time
-*   `p[5:m]` → τ_dyn; the dynamic lifetimes
-*   `p[m+1:N]` → K_dyn; the fraction corresponding of the population corresponding to the dynamic lifetime.
+* Generic 2D/3D diffusion models with optional anomalous diffusion (α) and multi‑component mixtures
+* Additive dynamic terms (e.g., exponential kinetic terms) and optional baseline offset
+* Parameter scaling and bounds handling for numerically stable fits
+* Clean separation of **model specification** vs **fit configuration**
+* Optional extensions for:
+  * Reading delimited text files (`DelimitedFiles.jl`)
+  * Pretty tabular summaries (`PrettyTables.jl`)
+  * LaTeX‑style labels in plots (`LaTeXStrings.jl`)
+  * Interactive/publication plots (`CairoMakie.jl`)
 
-Each of these parameters are scaled to $\mathcal{O}(1)$ based on their initial guess, provided they are non-zero, for the values to stabilize the fitting routine.
-For calibration purposes, the diffusivity can be constrained by specifying the keyword argument `diffusivity` in `fcs_plot` or `fcs_fit`, which will result in the beam waist `w0` being the first parameter in the vector, in place of the diffusion time τD.
 
-The value of `m` in either case is inferred from the length of the parameter vector.
-The "dynamic lifetimes" and their fractions are kept rather general to allow them to encapsulate a number of phenomena including photophysical dark states (e.g., triplets and blinking), PET, and molecule dynamics which are broadly captured by an exponential kernel in the autocorrelation.
-To specify which elements of the parameter vector correspond to which physical phenomena, the keyword argument `ics`, short for "independent components" is present.
-For instance, if we are to have two triplet states with lifetimes $\tau_1$ and $\tau_2$, we expect that they are dependent on each other in the sense that if a fluorophore is in triplet state 1 it cannot be in triplet state 2.
-The result is that the contribution to the autocorrelation is given by the sum 
-$$1 + T_1 \left( e^{- t / \tau_1} - 1 \right) + T_2 \left( e^{- t / \tau_2} - 1 \right)$$
-where $T_1$ and $T_2$ are the fraction of the population in the corresponding triplet state.
-On the other hand, if we have one triplet state and one PET site, we expect these events to be independent, amounting to a contribution
-$$\left( 1 + T e^{- t / \tau_\mathrm{tr}} - T \right) \left( 1 + Q e^{- t / \tau_\mathrm{pet}} - Q \right)$$
-where $Q$ is the fraction of the observed time spent undergoing PET dynamics.
-In the first case, we specify `ics = [2]` since we wish for the two components to be dependent upon each other.
-In the second, one may write `ics = [1,1]`, although this is taken as the base case so such a specification is optional.
+## Installation
 
-## Environment and Jupyter kernel creation
+Until the package is registered, install via a local checkout or a private Git URL.
 
-Once you have the Julia language installed (https://julialang.org/install/), since FCSFitting is not a public repository at the time of writing, the best way to interface with it is to create a new global environment.
-Moreover, if you are using VSCode as an IDE, you will need to instantiate a new kernel associated with this environment.
-This section is dedicated to showing users new to Julia how this can be achieved.
+### Option A — local path (recommended for development)
 
-Open terminal or command propt and type the command `julia` then hit `Enter`.
-This will launch the Julia REPL, your primary access point to the Julia language.
-To interface with packages, type a right square bracket, `]`, which will bring you to the Pkg REPL.
-To create a global or shared environment named `fcs`, type the command
-`pkg> activate --shared fcs`.
-Currently, `FCSFitting` has four "weak dependencies" which allow for one to easily plot and read data and create tables.
-These can be installed in `fcs` with the command
-`fcs> add CairoMakie, LaTeXStrings, DelimitedFiles, PrettyTables, IJulia`.
-We will discuss the last, fifth, package shortly.
-After the packages are installed, we want to add the FCSFitting repository as `fcs> add <path>/<to>/<FCSFitting>`, where the path is replaced with your local, absolute path to the FCSFitting directory.
-If you intend to keep up with the most recent versions of FCSFitting, you can use `dev` instead of `add` in the previous command.
-Finally, type `fcs> precompile` to precompile the environment.
+```julia
+julia> ]
+pkg> activate --shared fcs
+pkg> add CairoMakie LaTeXStrings DelimitedFiles PrettyTables IJulia
+pkg> dev /absolute/path/to/FCSFitting.jl
+pkg> precompile
+```
 
-Next, we need to make a kernel for the notebooks which use FCSFitting to be run in.
-From the Pkg REPL, use backspace to return to the Julia REPL and type the command
-`julia> using IJulia; IJulia.installkernel("Julia (@fcs)"; env=Dict("JULIA_PROJECT" => "@fcs"))`, 
-amounting to a new kernel being made which uses the `fcs` environment we just created.
+### Option B — private Git URL
 
-Finally, when you wish to run a notebook such as `examples/fitting.ipynb`, go to VSCode and, before running, enter `Ctrl+Shift+P` then type into the search bar `Notebook: Select notebook kernel`.
-After hitting `Enter`, this will bring up a dropdown menu whereby you should select `Select Another Kernel... -> Jupyter Kernels -> Julia (@fcs)`.
-Now the notebook will run with the kernel we just created!
+```julia
+julia> ]
+pkg> activate --shared fcs
+pkg> add CairoMakie LaTeXStrings DelimitedFiles PrettyTables IJulia
+pkg> dev git@github.com:LabGradinaru/FCSFitting.jl.git  # or https
+pkg> precompile
+```
+
+> **Tip:** use `dev` (instead of `add`) to track local changes during development.
+
+
+## Environments & Jupyter kernel (VS Code/Jupyter)
+
+If you use VS Code or Jupyter, it’s convenient to create a dedicated environment and kernel.
+
+1. **Create/activate a shared environment**
+
+```julia
+julia> ]
+pkg> activate --shared fcs
+pkg> add CairoMakie LaTeXStrings DelimitedFiles PrettyTables IJulia
+pkg> dev /absolute/path/to/FCSFitting.jl
+pkg> precompile
+```
+
+2. **Install a Jupyter kernel that points at this env**
+
+```julia
+julia> using IJulia
+julia> IJulia.installkernel("Julia (@fcs)"; env=Dict("JULIA_PROJECT" => "@fcs"))
+```
+
+3. **Select the kernel** in VS Code: `Ctrl+Shift+P` → *Notebook: Select Notebook Kernel* → *Select Another Kernel…* → *Jupyter Kernels* → **Julia (@fcs)**.
+
+
+## Quick start
+
+```julia
+using FCSFitting
+
+# Example: 3D normal diffusion with one kinetic (exponential) term and an offset.
+diffusivity = 5e-11 # m^2/s
+offset = 0.0
+spec = FCSModelSpec(dim = d3, anom = none, offset = offset, diffusivity = diffusivity)
+
+# Synthetic example parameters: [g0, n_exp_terms, τD, τ_dyn, K_dyn]
+initial_parameters = [1.0, 5.0, 2e-7, 1e-7, 0.1]
+lower_bounds = [0.9, 1.0, 1e-8,  1e-8, 0.0]
+upper_bounds = [1.1, 20.0, 1e-6, 1e-4, 0.5]
+
+# t: lag‑time vector (s); g: experimental correlation values
+# Example stub (replace with real data):
+t = range(1e-7, 1e-2; length=256)
+g = model(spec, initial_parameters, t) .+ 0.02 .* randn(length(t))
+
+# Store output from fit in a `FCSFitResults` container
+fit = fcs_fit(spec, t, g, initial_parameters; lower = lower_bounds, upper = upper_bounds)
+println(fit)
+```
+
+
+### Reading your own data (via extension)
+
+If your data live in a delimited file (CSV/TSV), load `DelimitedFiles` **before** `FCSFitting` to enable the extension. The files are assumed to be in the order (column-wise): lag times, data, standard deviations (optional), which is then organized into `FCSChannel` objects:
+
+```julia
+using DelimitedFiles, FCSFitting
+data = read_fcs(filepath; start_idx = 20, end_idx = 300);
+fit = fcs_fit(spec, data.channel[1].τ, data.channel[1].G, initial_parameters; lower = lower_bounds, upper = upper_bounds)
+```
+
+
+### Plotting (via CairoMakie extension)
+
+```julia
+using CairoMakie, LaTeXStrings, FCSFitting
+
+channel = FCSChannel("sample", t, g, nothing)
+
+fig, fit = fcs_plot(spec, channel, initial_parameters)
+save("corr1.png", fig)
+```
+
+
+## Models and parameters
+
+`FCSModelSpec` declares model structure; numerical values are supplied via the parameter vector. The intended order for the parameter vector arguments can be accessed via 
+```julia
+using FCSFitting
+
+coarse_parameter_order = expected_parameter_names(spec)
+precise_parameter_order = expected_parameter_names(spec, initial_parameters)
+```
+which returns a `Vector{String}` containing the intended argument order. In general, the order should be
+
+1. Current correlation, $G (0)$
+2. (Optional) Correlation offset, $G (\infty)$
+3. (Optional; if `dim=:d3`) Structure factor, $\kappa$
+4. Characteristic diffusion times, $\tau_{D,i} = w_{0,i}^2 / 4D_i$ (OR the beam width $w_{0,i}$ if the diffusivity is provided)
+5. (If `spec.anom != :none`) Anomalous exponents, $\alpha_i$
+6. (If `spec.n_diff > 1`) Diffusion population fractions, $f_i$
+7. Dynamic lifetimes, $\tau_{\mathrm{dyn}, j}$
+8. Dynamic population fractions, $T_j$
+
+The generic form of the model being fit is
+$$\hat{G}(t) = G (0) \sum_{i = 1}^N f_i K (t, \tau_{D,i}, \alpha_i) \times \prod_{j = 1}^M \left[ 1 + \sum_{k = 1}^{n_j} T_{j,k} \left( e^{- t / \tau_{\mathrm{dyn}, j, k}} - 1 \right) \right] + G (\infty), $$
+where $K$ is the diffusive kernel being used for the fit.
+The (in)dependence of the dynamic components being fit (i.e., if they are multiplicative or additive) is dictated by the `ics` parameter of `FCSModelSpec`.
+For instance, if you wish to have two **independent** dynamic processes, each with one state, one would set `ics=[1,1]`, amounting to a dynamic contribution
+$$\left[ 1 + T_{1,1} \left( e^{- t / \tau_{\mathrm{dyn},1,1}} - 1 \right) \right] \left[ 1 + T_{2,1} \left( e^{- t / \tau_{\mathrm{dyn},2,1}} - 1 \right) \right]$$
+to the correlation. On the other hand, if the two states are understood to be **dependent** (e.g., accounting for two triplet states, etc.) then one would set `ics = [2]` such that the contribution is now
+$$1 + T_{1,1} \left( e^{- t / \tau_{\mathrm{dyn},1,1}} - 1 \right) + T_{1,2} \left( e^{- t / \tau_{\mathrm{dyn},1,2}} - 1 \right).$$
+
+
+## Troubleshooting
+
+* **Extensions aren’t active**: ensure you loaded e.g. `CairoMakie` **before** `FCSFitting` in the same session.
+* **MethodError on model spec**: check that your parameter vector matches the model’s expected ordering.
+* **Slow/unstable fits**: provide reasonable bounds; use `scale` output from `fcs_fit` for diagnostics; reduce parameter correlations by fixing known values if possible.
+* **Pkg can’t find the repo**: double‑check the path/URL and that you have permission to the private repository.
+
+
+## Contributing
+
+Issues and PRs are welcome. Please include a minimal reproducer and specify the Julia version. For larger contributions, open an issue first to discuss design/API.
