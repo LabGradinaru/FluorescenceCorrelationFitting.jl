@@ -73,7 +73,7 @@ function infer_noscale_indices(spec::FCSModelSpec, p0::AbstractVector)
 
     idx = 2 # g0
     isnothing(spec.offset) && (idx += 1) # offset
-    (spec.dim.sym === :d3) && (idx += 1) # κ
+    (spec.dim === d3) && (idx += 1) # κ
 
     # 4) diffusion times (or w0 when diffusivity is fixed)
     n = spec.n_diff
@@ -82,9 +82,9 @@ function infer_noscale_indices(spec::FCSModelSpec, p0::AbstractVector)
     idx = τ_end + 1
 
     # 5) anomalous exponents
-    if spec.anom.sym === :global
+    if spec.anom === globe
         idx += 1
-    elseif spec.anom.sym === :perpop
+    elseif spec.anom === perpop
         α_end = idx + n - 1
         α_end ≤ L || return idxs
         idx = α_end + 1
@@ -130,7 +130,7 @@ based on a given `FCSModel` or its specifications, `FCSModelSpec` using
 # 3D "Brownian" diffusion with one kinetic (exponential) term and an offset.
 diffusivity   = 5e-11         # m^2/s
 offset        = 0.0
-spec = FCSModelSpec(dim = :d3, anom = :none, offset = offset, diffusivity = diffusivity)
+spec = FCSModelSpec(dim = d3, anom = none, offset = offset, diffusivity = diffusivity)
 
 # Synthetic example parameters and data: [g0, n_exp_terms, τD, τ_dyn, K_dyn]
 initial_parameters = [1.0, 5.0, 2e-7, 1e-7, 0.1]
@@ -234,3 +234,11 @@ end
 
 fcs_fit(m::FCSModel, ch::FCSChannel, p0::AbstractVector; kwargs...) = 
     fcs_fit(m, ch.τ, ch.G, p0; σ=ch.σ, kwargs...)
+
+
+
+    
+# struct FCSFitResults
+#     model::FCSModel
+#     fit::LsqFit.LsqFitResult
+# end

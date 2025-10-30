@@ -82,7 +82,7 @@ using FCSFitting
 # Example: 3D normal diffusion with one kinetic (exponential) term and an offset.
 diffusivity = 5e-11 # m^2/s
 offset = 0.0
-spec = FCSModelSpec(dim = :d3, anom = :none, offset = offset, diffusivity = diffusivity)
+spec = FCSModelSpec(dim = d3, anom = none, offset = offset, diffusivity = diffusivity)
 
 # Synthetic example parameters: [g0, n_exp_terms, τD, τ_dyn, K_dyn]
 initial_parameters = [1.0, 5.0, 2e-7, 1e-7, 0.1]

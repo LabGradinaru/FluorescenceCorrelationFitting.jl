@@ -72,7 +72,7 @@ function _no_dynamics_params(spec::FCSModelSpec)
     names = String[]
     push!(names, G0_NAME)
     isnothing(spec.offset) && push!(names, OFF_NAME)
-    spec.dim.sym === :d3 && push!(names, STRUCT_NAME)
+    spec.dim === d3 && push!(names, STRUCT_NAME)
 
     # τD slots (or w0 if D fixed)
     base_label = BEAM_NAME
@@ -86,9 +86,9 @@ function _no_dynamics_params(spec::FCSModelSpec)
     end
 
     # anomalous exponents
-    if spec.anom.sym === :global
+    if spec.anom === globe
         push!(names, ANOM_NAME)
-    elseif spec.anom.sym === :perpop
+    elseif spec.anom === perpop
         for i in 1:spec.n_diff
             push!(names, ANOM_NAME * " $i")
         end
@@ -178,7 +178,7 @@ save("corr1.png", fig)
 function fcs_plot end
 
 function fcs_plot(spec::FCSModelSpec, τ::AbstractVector, data::AbstractVector, 
-                  fit::LsqFit.LMResults, scales::AbstractVector; 
+                  fit::LsqFit.LsqFitResult, scales::AbstractVector; 
                   residuals::Bool=true, color1=:deepskyblue3, 
                   color2=:orangered2, color3=:steelblue4, kwargs...)
     if residuals
@@ -188,7 +188,7 @@ function fcs_plot(spec::FCSModelSpec, τ::AbstractVector, data::AbstractVector,
     end
 end
 
-function fcs_plot(spec::FCSModelSpec, ch::FCSChannel, fit::LsqFit.LMResults, 
+function fcs_plot(spec::FCSModelSpec, ch::FCSChannel, fit::LsqFit.LsqFitResult, 
                   scales::AbstractVector; kwargs...)
     return fcs_plot(spec, ch.τ, ch.G, fit, scales; kwargs...)
 end

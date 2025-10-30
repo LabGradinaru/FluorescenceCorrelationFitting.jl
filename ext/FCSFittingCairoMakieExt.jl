@@ -25,7 +25,7 @@ Internal method for rendering previously fitted FCS data into a figure, with opt
 function _fcs_plot end
 
 function _fcs_plot(spec::FCSModelSpec, τ::AbstractVector, data::AbstractVector, 
-                   fit::LsqFit.LMResults, scales::AbstractVector, color1::Symbol, 
+                   fit::LsqFit.LsqFitResult, scales::AbstractVector, color1::Symbol, 
                    color2::Symbol, color3::Symbol; 
                    fig::Union{Nothing,Makie.Figure}=nothing, kwargs...)
     # Create or reuse a figure
@@ -65,7 +65,7 @@ function _fcs_plot(spec::FCSModelSpec, τ::AbstractVector, data::AbstractVector,
 end
 
 function _fcs_plot(spec::FCSModelSpec, τ::AbstractVector, data::AbstractVector, 
-                   fit::LsqFit.LMResults, scales::AbstractVector, color1::Symbol, 
+                   fit::LsqFit.LsqFitResult, scales::AbstractVector, color1::Symbol, 
                    color2::Symbol; fig::Union{Nothing,Makie.Figure}=nothing, 
                    kwargs...)
     fig = isnothing(fig) ? Figure(size=(700, 600); fontsize) : fig

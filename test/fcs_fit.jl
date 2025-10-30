@@ -35,7 +35,7 @@
         τD_true     = 1e-3 * rand()
 
         # Model spec: 2D, Brownian, single diffuser, free offset
-        spec = FCSFitting.FCSModelSpec(; dim=:d2, anom=:none, n_diff=1, offset=nothing)
+        spec = FCSFitting.FCSModelSpec(; dim=FCSFitting.d2, anom=FCSFitting.none, n_diff=1, offset=nothing)
 
         # Generate noiseless data with the generalized model
         model = FCSFitting.FCSModel(; spec)
@@ -69,7 +69,7 @@
         offset_true = 2e-3
         τD_true     = 8e-4
 
-        spec = FCSFitting.FCSModelSpec(; dim=:d2, anom=:none, n_diff=1, offset=nothing)
+        spec = FCSFitting.FCSModelSpec(; dim=FCSFitting.d2, anom=FCSFitting.none, n_diff=1, offset=nothing)
         model = FCSFitting.FCSModel(; spec)
         y_true = model(τ, [g0_true, offset_true, τD_true])
 
@@ -103,7 +103,7 @@
         off_fixed = 0.0
 
         # Spec: 2D, Brownian, single diffuser, fixed offset & fixed D (so p = [g0, w0])
-        spec = FCSFitting.FCSModelSpec(; dim=:d2, anom=:none, n_diff=1, offset=off_fixed, diffusivity=D)
+        spec = FCSFitting.FCSModelSpec(; dim=FCSFitting.d2, anom=FCSFitting.none, n_diff=1, offset=off_fixed, diffusivity=D)
         model = FCSFitting.FCSModel(; spec)
         y = model(τ, [g0_true, w0_true])
 

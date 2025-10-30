@@ -8,7 +8,7 @@ export FCSChannel, FCSData,
        resid_acf_plot,
        parameters, errors,
        fcs_fit, log_lags,
-       FCSModelSpec,
+       Dim, Scope, FCSModelSpec,
        τD, diffusivity, 
        volume, area, 
        concentration, 
@@ -17,7 +17,7 @@ export FCSChannel, FCSData,
 
 using LsqFit
 
-include("data_storage.jl")
+include("FCSData.jl")
 include("models.jl")
 include("fcs_fit.jl")
 include("gof.jl")

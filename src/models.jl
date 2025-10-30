@@ -327,56 +327,12 @@ dyn(t, τ, f) = @. f * (exp(-t/τ) - 1)
 # Public fitting models and types
 # ─────────────────────────────────────────────────────────────────────────────
 
-"""
-    Dimension(sym)
+@enum Dim::UInt8 d2 d3
+@enum Scope::UInt8 none globe perpop
 
-Internal wrapper for spatial dimensionality.
-
-- `:d2` — 2D
-- `:d3` — 3D
-
-Users should prefer the keyword constructor `FCSModelSpec(; dim=...)` instead of
-constructing `Dimension` directly.
-"""
-struct Dimension
-    sym::Symbol
-    function Dimension(sym::Symbol)
-        sym ∈ (:d2, :d3) || throw(DomainError(sym, "Dimension must be :d2 or :d3"))
-        new(sym)
-    end
-end
-Dimension(x::AbstractString) = Dimension(Symbol(lowercase(x)))
-Dimension(x::Dimension) = x
-Base.convert(::Type{Dimension}, x) = Dimension(x) 
-
-
-"""
-    Scope(sym)
-
-Internal wrapper for anomalous diffusion scope.
-
-- `:none`   — normal diffusion
-- `:global` — one α shared by all diffusers
-- `:perpop` — one α per diffuser
-
-Users should prefer the keyword constructor `FCSModelSpec(; anom=...)` instead of
-constructing `Scope` directly.
-"""
-struct Scope
-    sym::Symbol
-    function Scope(sym::Symbol)
-        sym ∈ (:none, :global, :perpop) || throw(DomainError(sym, "Scope must be :none, :global, or :perpop"))
-        new(sym)
-    end
-end
-Scope(x::AbstractString) = Scope(Symbol(lowercase(x)))
-Scope(x::Scope) = x
-Base.convert(::Type{Scope}, x) = Scope(x)
-
-
-Base.@kwdef struct FCSModelSpec
-    dim::Dimension
-    anom::Scope = :none
+Base.@kwdef struct FCSModelSpec{D<:Dim,S<:Scope}
+    dim::D
+    anom::S = none
     offset::Union{Nothing,Float64} = nothing
     diffusivity::Union{Nothing,Float64} = nothing
     n_diff::Int = 1
@@ -384,16 +340,14 @@ Base.@kwdef struct FCSModelSpec
 end
 
 function _normalize(spec::FCSModelSpec)
-    dim = convert(Dimension, spec.dim)
-    anom = convert(Scope, spec.anom)
-    off = isnothing(spec.offset)      ? nothing : Float64(spec.offset)
+    off = isnothing(spec.offset) ? nothing : Float64(spec.offset)
     Dfix = isnothing(spec.diffusivity) ? nothing : Float64(spec.diffusivity)
     nd = Int(spec.n_diff); nd ≥ 1 || throw(ArgumentError("n_diff must be ≥ 1"))
     ics = isnothing(spec.ics) ? nothing : Int.(collect(spec.ics))
-    if anom.sym === :perpop && nd == 1
-        throw(ArgumentError(":perpop anomalous scope requires n_diff > 1"))
+    if anom === perpop && nd == 1
+        throw(ArgumentError("perpop anomalous scope requires n_diff > 1"))
     end
-    return FCSModelSpec(; dim, anom, offset=off, diffusivity=Dfix, n_diff=nd, ics)
+    return FCSModelSpec(; spec.dim, spec.anom, offset=off, diffusivity=Dfix, n_diff=nd, ics)
 end
 
 """
@@ -403,11 +357,11 @@ end
 User-friendly constructor for an FCS model specification.
 
 # Keywords
-- `dim`            — Spatial dimension: `:d2` or `:d3`. (String or `Symbol` accepted.)
+- `dim`            — Spatial dimension: `d2` or `d3`.
 - `anom`           — Anomalous-diffusion scope:
-    - `:none`   → normal diffusion,
-    - `:global` → single α shared by all diffusers,
-    - `:perpop` → one α per diffuser (requires `n_diff > 1`).
+    - `none`   → normal diffusion,
+    - `global` → single α shared by all diffusers,
+    - `perpop` → one α per diffuser (requires `n_diff > 1`).
 - `offset`         — `nothing` to fit a free offset; or a fixed `Real` value to hold it constant.
 - `diffusivity`    — `nothing` to fit τᴅ directly; or a fixed `Real` diffusivity `D` to interpret the
                      “τᴅ slots” as beam radii `w₀` and compute `τᴅ = w₀²/(4D)` internally.
@@ -418,10 +372,10 @@ User-friendly constructor for an FCS model specification.
 
 # Examples
 ```julia
-spec = FCSModelSpec(; dim=:d2, anom=:none, n_diff=1)  # 2D, normal diffusion, one diffuser
-spec = FCSModelSpec(; dim="d3", anom="global", n_diff=2)  # 3D, one α shared across 2 diffusers
-spec = FCSModelSpec(; dim=:d3, anom=:perpop, n_diff=2, offset=0.0) # α₁,α₂; fixed offset
-spec = FCSModelSpec(; dim=:d3, diffusivity=5e-11, n_diff=1)  # treat τD slot as w0
+spec = FCSModelSpec(; dim=d2, anom=none, n_diff=1)  # 2D, normal diffusion, one diffuser
+spec = FCSModelSpec(; dim=d3, anom=global, n_diff=2)  # 3D, one α shared across 2 diffusers
+spec = FCSModelSpec(; dim=d3, anom=perpop, n_diff=2, offset=0.0) # α₁,α₂; fixed offset
+spec = FCSModelSpec(; dim=d3, diffusivity=5e-11, n_diff=1)  # treat τD slot as w0
 ```
 """
 FCSModelSpec(nt::NamedTuple) = _normalize(FCSModelSpec(; nt...))
@@ -450,7 +404,7 @@ function _eval(spec::FCSModelSpec, t, p::AbstractVector; scales=nothing)
 
     # if the model is in three dimensions, collect the structure factor κ
     κ = nothing
-    if spec.dim.sym == :d3
+    if spec.dim == d3
         κ = sp[idx]; idx += 1
     end
 
@@ -466,10 +420,10 @@ function _eval(spec::FCSModelSpec, t, p::AbstractVector; scales=nothing)
 
     # anomalous exponents
     α = nothing
-    α_scope = spec.anom.sym
-    if α_scope == :global
+    α_scope = spec.anom
+    if α_scope == globe
         α = sp[idx] * ones(n_diff); idx += 1
-    elseif α_scope == :perpop
+    elseif α_scope == perpop
         α_end = idx + n_diff - 1
         L ≥ α_end || throw(ArgumentError("Parameter vector too short for $n_diff unique anomalous exponents."))
         α = collect(@view sp[idx:α_end])

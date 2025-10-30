@@ -4,10 +4,11 @@ using PrettyTables
 using LsqFit
 
 import FCSFitting: FCSModelSpec, sigstr, fcs_table, infer_parameter_names, 
-                   τD, parameters, errors, SI_PREFIXES, aic, 
-                   aicc, bic, bicc, chi_squared, ljung_box, ww_test
+                   τD, parameters, errors, SI_PREFIXES, aic, aicc, bic, 
+                   bicc, chi_squared, ljung_box, ww_test
 
-
+# TODO: restructure and generalize here similar to how was done for fcs_plot
+# might also be nice to make a FCSFitResult struct for containing spec + fit + scales :)
 """
     fcs_table(spec, fit, scales; backend=:html, gof_metric=bic)
 
