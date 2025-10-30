@@ -58,11 +58,6 @@ Prefer `build_scales_from_p0` when you know which indices should not be scaled.
 build_scales(params::AbstractVector{<:Real}; zero_sub::Real=1.0) =
     build_scales_from_p0(params; noscale_idx=Int[], zero_sub)
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Index inference for the generic model (weights, K_dyn)
-# ─────────────────────────────────────────────────────────────────────────────
-
 """
     infer_noscale_indices(spec::FCSModelSpec, p0) -> Vector{Int}
 
@@ -119,12 +114,41 @@ function infer_noscale_indices(spec::FCSModelSpec, p0::AbstractVector)
 end
 
 """
-    fcs_fit(spec::FCSModelSpec, lag_times, corr_data, p0;
-            σ=nothing, wt=nothing, scales=nothing, zero_sub=1.0,
-            lower=nothing, upper=nothing, kwargs...) -> (fit, scales)
+    fcs_fit(spec, times, data, p0) -> (fit, scales)
+    fcs_fit(spec, channel, p0) -> (fit, scales)
+    fcs_fit(model, times, data, p0) -> (fit, scales)
+    fcs_fit(model, channel, p0) -> (fit, scales)
 
-Fit the generic FCS model (described by `spec`) to data using `LsqFit.curve_fit`,
-with parameter normalization.
+Fit FCS data, in the form of a pair of lag times and the correlation curve, 
+based on a given `FCSModel` or its specifications, `FCSModelSpec`
+using `LsqFit.curve_fit`, with parameter normalization. 
+`p0` is an initial model parameter guess (see Example).
+
+# Example 
+
+```julia
+# 3D "Brownian" diffusion with one kinetic (exponential) term and an offset.
+diffusivity   = 5e-11         # m^2/s
+offset        = 0.0
+spec = FCSModelSpec(dim = :d3, anom = :none, offset = offset, diffusivity = diffusivity)
+
+# Synthetic example parameters: [g0, n_exp_terms, τD, τ_dyn, K_dyn]
+initial_parameters = [1.0, 5.0, 2e-7, 1e-7, 0.1]
+
+# t: lag‑time vector (s); g: experimental correlation values
+# Example stub (replace with real data):
+t = range(1e-7, 1e-2; length=256)
+g = model(spec, initial_parameters, t) .+ 0.02 .* randn(length(t))
+
+fit, scale = fcs_fit(spec, t, g, initial_parameters)
+```
+# Keyword Arguments
+- `σ=nothing`: Standard deviation of each data point in the correlation. 
+               If no weight, `wt`, is provided, 
+
+TODO!
+
+# Notes
 
 - If `scales` is `nothing`, they are inferred from `p0` so that `θ0 ≈ ones`, while
   *not* scaling mixture weights and K-dynamics (found via `infer_noscale_indices`).
@@ -132,9 +156,9 @@ with parameter normalization.
   provided `wt` is used; if both are `nothing`, the fit is unweighted.
 - Bounds (`lower`, `upper`) are given in **physical** units and internally normalized
   to `θ`-space by dividing by `scales`.
-
-Returns `(fit::LsqFit.LsqFitResult, scales::Vector)`.
 """
+function fcs_fit end
+
 function fcs_fit(spec::FCSModelSpec, times::AbstractVector, 
                  data::AbstractVector, p0::AbstractVector;
                  σ::Union{Nothing,AbstractVector}=nothing,
@@ -200,12 +224,6 @@ function fcs_fit(spec::FCSModelSpec, times::AbstractVector,
     return fit, scales_
 end
 
-"""
-    fcs_fit(m::FCSModel, lag_times, corr_data, p0; kwargs...) -> (fit, scales)
-
-Convenience overload: supply an already-constructed `FCSModel`.
-If `m.scales` is `nothing`, scales are inferred from `p0` as in the `FCSModelSpec` method.
-"""
 function fcs_fit(m::FCSModel, times::AbstractVector,
                  data::AbstractVector, p0::AbstractVector; kwargs...)
     # If scales are pre-attached to the model, reuse them
@@ -217,3 +235,9 @@ function fcs_fit(m::FCSModel, times::AbstractVector,
         return fcs_fit(m.spec, times, data, p0; scales=m.scales, kwargs...)
     end
 end
+
+fcs_fit(spec::FCSModelSpec, ch::FCSChannel, p0::AbstractVector; kwargs...) = 
+    fcs_fit(spec, ch.τ, ch.G, p0; σ=ch.σ, kwargs...)
+
+fcs_fit(m::FCSModel, ch::FCSChannel, p0::AbstractVector; kwargs...) = 
+    fcs_fit(m, ch.τ, ch.G, p0; σ=ch.σ, kwargs...)
