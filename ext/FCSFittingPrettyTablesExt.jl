@@ -2,10 +2,9 @@ module FCSFittingPrettyTablesExt
 
 using PrettyTables
 using LsqFit
-import StatsAPI: aic, aicc, bic
 
 import FCSFitting: FCSFitResult, sigstr, fcs_table, infer_parameter_names, 
-                   τD, SI_PREFIXES, r2
+                   τD, SI_PREFIXES, aic, aicc, bic
 
 
 """

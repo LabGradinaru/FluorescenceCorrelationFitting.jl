@@ -1,19 +1,42 @@
 module FCSFitting
 
-export FCSChannel, FCSData, 
-       expected_parameter_names, 
-       infer_parameter_names,
-       read_fcs,
-       fcs_plot, fcs_table, 
-       resid_acf_plot,
-       fcs_fit, FCSFitResult,
-       Dim, Scope, FCSModelSpec,
-       τD, diffusivity, 
-       volume, area, 
+export FCSChannel, 
+       FCSData,
+
+       Dim, 
+       Scope,
+       FCSModelSpec,
+       FCSModel,
+
+       τD, 
+       diffusivity, 
+       volume, 
+       area, 
        concentration, 
        surface_density, 
-       hydrodynamic
+       hydrodynamic,
+       FCSFitResult,
+       coef,
+       dof,
+       nobs,
+       residuals,
+       rss,
+       weights,
+       stderror,
+       loglikelihood,
+       aic,
+       aicc,
+       bic,
 
+       fcs_fit,
+
+       expected_parameter_names,
+       infer_parameter_names,
+       fcs_plot,
+       resid_acf_plot,
+       fcs_table,
+       read_fcs
+       
 using LsqFit
 using StatsAPI
 
