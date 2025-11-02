@@ -1,3 +1,24 @@
+const BOLTZMANN = 1.380649e-23 # Boltzmann constant in SI units
+const AVAGADROS = 6.022141e23 # Avagadro's number in SI units
+
+const SI_PREFIXES = Dict(
+    "" => 1.0,
+    "L" => 1e1,
+    "d" => 1e1,
+    "c" => 1e2,
+    "m" => 1e3,
+    "μ" => 1e6,
+    "u" => 1e6,
+    "n" => 1e9,
+    "A" => 1e10,
+    "p" => 1e12
+)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Fitting
+# ─────────────────────────────────────────────────────────────────────────────
+
 """
     FCSFitResult{P,R,J,W,T,S}(
         param,resid,jacobian,converged,trace,wt,spec,scales
@@ -10,7 +31,7 @@ FCSFitResult(lsf::LsqFit.LsqFitResult, spec, scales)
 Wrap an `LsqFit.LsqFitResult` together with the model `spec` and `scales`
 into an `FCSFitResult` that supports `StatsAPI` methods.
 """
-struct FCSFitResult{P,R,J,W <: AbstractArray,T,S} <: StatsAPI.StatisticalModel
+struct FCSFitResult{P,R,J,W<:AbstractArray,T,S} <: StatsAPI.StatisticalModel
     param::P
     resid::R
     jacobian::J
@@ -43,71 +64,37 @@ function _to_lfr(fit::FCSFitResult)
 end
 
 StatsAPI.coef(ffr::FCSFitResult) = ffr.param .* ffr.scales
+StatsAPI.dof(ffr::FCSFitResult) = StatsAPI.nobs(ffr) - length(ffr.param)
 StatsAPI.nobs(ffr::FCSFitResult) = length(ffr.resid)
+StatsAPI.residuals(ffr::FCSFitResult) = ffr.resid
 StatsAPI.rss(ffr::FCSFitResult) = sum(abs2, ffr.resid)
 StatsAPI.weights(ffr::FCSFitResult) = ffr.wt
-StatsAPI.residuals(ffr::FCSFitResult) = ffr.resid
-
-"""
-    StatsAPI.stderror(fit::FCSFitResult)
-
-Standard errors of **physical-space** parameters.
-"""
 StatsAPI.stderror(fit::FCSFitResult; kwargs...) =
     LsqFit.stderror(_to_lfr(fit)) .* fit.scales
-
-"""
-    StatsAPI.dof(ffr::FCSFitResult)
-
-Residual degrees of freedom = nobs - number of free parameters.
-"""
-StatsAPI.dof(ffr::FCSFitResult) = StatsAPI.nobs(ffr) - length(ffr.param)
-
-"""
-    mse(ffr::FCSFitResult)
-
-Mean squared error based on residual DOF.
-"""
 mse(ffr::FCSFitResult) = StatsAPI.rss(ffr) / StatsAPI.dof(ffr)
-
-"""
-    isconverged(ffr::FCSFitResult)
-
-Convenience boolean flag.
-"""
 isconverged(ffr::FCSFitResult) = ffr.converged
 
-"""
-    StatsAPI.offset(ffr::FCSFitResult)
-
-Return the fitted (or fixed) offset in physical units.
-If the spec fixes the offset, use that; otherwise assume the
-offset is the second free parameter (g0 is first).
-"""
-function StatsAPI.offset(ffr::FCSFitResult)
-    spec = ffr.spec
-    # Prefer a fixed offset in the spec (if present)
-    if hasproperty(spec, :offset) && getproperty(spec, :offset) !== nothing
-        return getproperty(spec, :offset)
-    end
-    # Otherwise, interpret p[2] as the offset and scale it
-    return ffr.param[2] * ffr.scales[2]
-end
-
 function StatsAPI.loglikelihood(fit::FCSFitResult)
-    w = fit.wt
+    r = fit.resid
     N = nobs(fit)
-    # Guard against pathological inputs
-    if N == 0 || any(!isfinite, fit.resid) || any(!isfinite, w) || any(≤(0), w)
-        return -Inf
-    end
+    N == 0 && return -Inf
 
-    # assume sample from an iid Gaussian
-    σ2 = rss(fit) / N
-    return -0.5 * (N * log(2π * σ2) + N)
+    w = fit.wt === nothing ? ones(eltype(r), N) : fit.wt
+    length(w) == N || throw(ArgumentError("fit.wt must match residual length"))
+    (all(isfinite, r) && all(isfinite, w) && all(>(0), w)) || return -Inf
+
+    # Weighted RSS with *unweighted* residuals (LsqFit stores unweighted r)
+    rss_w = sum(@. w * r^2)
+    σ2 = rss_w / N
+    (σ2 > 0 && isfinite(σ2)) || return -Inf
+
+    const_term = N*log(2π) - sum(log, w)    # = N*log(2π) when w ≡ 1
+    return -0.5 * (const_term + N*log(σ2) + N)
 end
 
-r2(fit::FCSFitResult; variant::Symbol=:McFadden) = StatsAPI.r2(fit, variant)
+bic(args...; kwargs...) = StatsAPI.bic(args...; kwargs...)
+aic(args...; kwargs...) = StatsAPI.aic(args...; kwargs...)
+aicc(args...; kwargs...) = StatsAPI.aicc(args...; kwargs...)
 
 
 """
@@ -274,8 +261,7 @@ function fcs_fit(spec::FCSModelSpec, τ::AbstractVector, data::AbstractVector, p
         (length(b) == length(scales_) ? b ./ scales_ :
          throw(ArgumentError("lower/upper must have length $(length(scales_))")))
 
-    lowerθ = normalize_bounds(lower)
-    upperθ = normalize_bounds(upper)
+    lowerθ = normalize_bounds(lower);  upperθ = normalize_bounds(upper)
 
     x = collect(τ)
     fit = if (lowerθ !== nothing) && (upperθ !== nothing)
@@ -304,3 +290,172 @@ end
 
 fcs_fit(m::FCSModel, ch::FCSChannel, p0::AbstractVector; kwargs...) =
     fcs_fit(m, ch.τ, ch.G, p0; σ=ch.σ, kwargs...)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Convenience calculators
+# ─────────────────────────────────────────────────────────────────────────────
+
+PosError(x) = ArgumentError(string(x, " must be positive."))
+const w0_ERROR = PosError("w0")
+const κ_ERROR = PosError("κ")
+const D_ERROR = PosError("Diffusivity")
+
+# TODO: all of these calculations should be achievable from a `fit` object
+"""
+    τD(D, w0; scale="")
+Convert diffusion coefficient `D` and lateral waist `w0` to the lateral diffusion time τD.
+"""
+@inline function τD(D::Real, w0::Real; scale::String="")
+    w0 > 0 || throw(w0_ERROR)
+    D > 0 || throw(D_ERROR)
+    
+    diff_time = w0^2 / (4D)
+    haskey(SI_PREFIXES, scale) && (diff_time *= SI_PREFIXES[scale])
+    return diff_time
+end
+
+"""
+    diffusivity(τD, w0; scale="")
+Convert diffusion time `τD` and beam waist `w0` to the diffusivity.
+"""
+@inline function diffusivity(τD::Real, w0::Real)
+    w0 > 0 || throw(w0_ERROR)
+    τD > 0 || throw(PosError("τD"))
+    return w0^2 / (4τD)
+end
+
+"""
+    volume(w0, κ; scale="")
+Calculate the effective volume from fitted FCS parameters.
+"""
+@inline function volume(w0::Real, κ::Real; scale::String="")
+    w0 > 0 || throw(w0_ERROR)
+    κ > 0 || throw(κ_ERROR)
+
+    vol = π^(3/2) * w0^3 * κ
+    haskey(SI_PREFIXES, scale) && (vol *= SI_PREFIXES[scale]^3)
+    return vol
+end
+
+"""
+    area(w0; scale="")
+Calculate the area formed by the beam waist `w0`.
+"""
+@inline function area(w0::Real; scale::String="") 
+    w0 > 0 || throw(w0_ERROR)
+    
+    area = π * w0^2
+    haskey(SI_PREFIXES, scale) && (area *= SI_PREFIXES[scale]^2)
+    return area
+end
+
+"""
+    concentration(g0, κ, w0; Ks=[], ics=[0], scale="L")
+
+Estimate the **molar concentration** (in mol/L) from FCS fit parameters.
+
+# Arguments
+- `w0::Real`: Lateral 1/e² Gaussian waist of the detection PSF (meters).
+- `κ::Real`: Axial structure factor `κ = wz / w0` (dimensionless).
+- `g0::Real`: Fitted correlation amplitude **at τ→0** (dimensionless).
+              In standard FCS models, the measured `g0` is inflated by blinking (“dark states”).
+- `Ks::AbstractVector` (keyword): Dark-state **equilibrium fractions** for the kinetic terms
+   used in the model (each in `[0,1)`), ordered exactly as in your dynamics kernel.
+- `ics::AbstractVector{Int}` (keyword): Block sizes describing how `Ks` (and their times)
+   are grouped into **independent** multiplicative blinking factors. For example,
+   `ics = [2, 1]` means the first blinking block has 2 components, the second block has 1.
+"""
+@inline function concentration(g0::Real, κ::Real, w0::Real; Ks::AbstractVector = [],
+                               ics::AbstractVector{Int} = [0], scale::String="L")
+    g0 > 0 || throw(PosError("g0"))
+    κ > 0 || throw(κ_ERROR)
+    w0 > 0 || throw(w0_ERROR)
+    all(0 .<= Ks .< 1) || throw(ArgumentError("All Ks must lie in [0,1)"))
+
+    # Validate / normalize ics
+    isempty(Ks) ?
+        (ics == [0]) || throw(ArgumentError("With Ks=[], use ics=[0]")) :
+        sum(ics) == length(Ks) || throw(ArgumentError("sum(ics) must equal length(Ks)"))
+
+    # Blink prefactor at τ→0: B(0) = ∏_blocks (1 + Σ_i n_i),  n_i = K_i/(1-K_i)
+    B0 = one(Float64)
+    idx = 1
+    for b in eachindex(ics)
+        nb = ics[b]
+        nb == 0 && continue
+
+        s = 0.0
+        @inbounds for j = 1:nb
+            K = float(Ks[idx + j - 1])
+            s += K / (1 - K)
+        end
+        B0 *= (1 + s)
+        idx += nb
+    end
+
+    conc = B0 / (g0 * AVAGADROS * volume(w0, κ))
+    haskey(SI_PREFIXES, scale) && (conc *= SI_PREFIXES[scale]^(-3))
+    return conc
+end
+
+"""
+    surface_density(w0, g0; Ks=[], ics=[0], scale="")
+
+Estimate the **molar surface density** (in mol/m^2) from FCS fit parameters.
+Analogue to `concentration` when the a 2d fit is performed.
+"""
+@inline function surface_density(g0::Real, w0::Real; Ks::AbstractVector = [],
+                                 ics::AbstractVector{Int} = [0], scale::String="")
+    g0 > 0 || throw(PosError("g0"))
+    w0 > 0 || throw(w0_ERROR)
+    all(0 .<= Ks .< 1) || throw(ArgumentError("All Ks must lie in [0,1)"))
+
+    # Validate / normalize ics
+    isempty(Ks) ?
+        (ics == [0]) || throw(ArgumentError("With Ks=[], use ics=[0]")) :
+        sum(ics) == length(Ks) || throw(ArgumentError("sum(ics) must equal length(Ks)"))
+
+    # Blink prefactor at τ→0: B(0) = ∏_blocks (1 + Σ_i n_i),  n_i = K_i/(1-K_i)
+    B0 = one(Float64)
+    idx = 1
+    for b in eachindex(ics)
+        nb = ics[b]
+        nb == 0 && continue
+
+        s = 0.0
+        @inbounds for j = 1:nb
+            K = float(Ks[idx + j - 1])
+            s += K / (1 - K)
+        end
+        B0 *= (1 + s)
+        idx += nb
+    end
+
+    dens = B0 / (g0 * AVAGADROS * area(w0))
+    haskey(SI_PREFIXES, scale) && (dens *= SI_PREFIXES[scale]^(-2))
+    return dens
+end
+
+"""
+    hydrodynamic(D; T=293.0, η=1.0016e-3, scale="")
+    hydrodynamic(τD, w0; T=293.0, η=1.0016e-3, scale="")
+
+Calculate the effective hydrodynamic radius of a molecule using the Stokes-Einstein relation.
+
+# Keyword Arguments
+- `T=293.0`: Temperature (in Kelvin)
+- `η=1.0016e-3`: Viscosity of water (Pa⋅s)
+"""
+@inline function hydrodynamic(D::Real; T=293.0, η=1.0016e-3, scale::String="")
+    D > 0 || throw(D_ERROR)
+    T > 0 || throw(PosError("Temperature"))
+    η > 0 || throw(PosError("Viscosity"))
+
+    rh = BOLTZMANN * T / (6π * η * D)
+    haskey(SI_PREFIXES, scale) && (rh *= SI_PREFIXES[scale])
+    return rh
+end
+
+hydrodynamic(τD::Real, w0::Real; kwargs...) =
+    hydrodynamic(diffusivity(τD, w0); kwargs...)

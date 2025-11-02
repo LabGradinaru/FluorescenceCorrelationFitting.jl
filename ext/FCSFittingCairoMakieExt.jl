@@ -114,6 +114,7 @@ function resid_acf_plot(fit::FCSFitResult; fontsize::Int=20,
     else
         ax = Axis(fig[1,1];
                   xlabel = L"\mathrm{Lag\ time}", ylabel = CORR_NAME,
+                  xtickformat = xs -> latexify_axis(xs),
                   ytickformat = ys -> latexify_axis(ys))
     end
 

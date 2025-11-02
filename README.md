@@ -100,6 +100,19 @@ println(fit)
 ```
 
 
+### Calculating relevant quantities
+
+```julia
+using FCSFitting
+# since diffusivity is fixed in the above fit,
+# the third coefficient is the beam width
+κ = coef(fit)[2];  w0 = coef(fit)[3]
+diff_time = τD(diffusivity, w0; scale="m") # diffusion time [ms]
+confocal_volume = volume(w0, κ) # confocal volume [m^3]
+rh = hydrodynamic(diffusivity; scale="A") # hydrodynamic radius [Angstroms]
+```
+
+
 ### Reading your own data (via extension)
 
 If your data live in a delimited file (CSV/TSV), load `DelimitedFiles` **before** `FCSFitting` to enable the extension. The files are assumed to be in the order (column-wise): lag times, data, standard deviations (optional), which is then organized into `FCSChannel` objects:

@@ -1,14 +1,3 @@
-const SI_PREFIXES = Dict(
-    ""  => 1.0,
-    "d" => 1e1,
-    "c" => 1e2,
-    "m" => 1e3,
-    "μ" => 1e6,
-    "u" => 1e6,
-    "n" => 1e9,
-    "p" => 1e12
-)
-
 const G0_NAME = "Current amplitude"
 const OFF_NAME = "Offset"
 const ANOM_NAME = "Anomalous exponent"

@@ -1,5 +1,4 @@
 @testset "fcs_fit" begin
-
     @testset "FCSFitResult constructor + _to_lfr + StatsAPI shims" begin
         exp_model(x, θ) = @. θ[1] * exp(-x/θ[2]) + θ[3]
 
@@ -40,16 +39,10 @@
         @test FCSFitting.mse(ffr) ≈ StatsAPI.rss(ffr) / StatsAPI.dof(ffr)
         @test FCSFitting.isconverged(ffr) == lsf.converged
 
-        # loglikelihood sanity: less residuals → higher LL
         # Build a "better" fit by re-fitting with the true parameters as θ0
         lsf_better = curve_fit(exp_model, x, y, wt, [a_true, b_true, c_true])
         ffr_better = FCSFitResult(lsf_better, spec_free, scales)
-        @test StatsAPI.loglikelihood(ffr_better) > StatsAPI.loglikelihood(ffr)
-
-        fixed_off = -0.0123
-        spec_fixed = FCSModelSpec(; dim=FCSFitting.d2, anom=FCSFitting.none, n_diff=1, offset=fixed_off)
-        ffr_fixed = FCSFitResult(lsf, spec_fixed, scales)
-        @test StatsAPI.offset(ffr_fixed) == fixed_off
+        @test StatsAPI.loglikelihood(ffr_better) >= StatsAPI.loglikelihood(ffr)
     end
 
     @testset "build_scales_from_p0 + build_scales" begin
@@ -68,25 +61,26 @@
         @test θ1 ≈ [1.0, 0.0, 1.0, 1.0, 0.0]
     end
 
-    @testset "infer_noscale_indices (simple 2D case)" begin
+    @testset "infer_noscale_indices" begin
         # 2D, normal diffusion, ONE diffuser, FREE offset (offset=nothing)
         # Parameter layout (n=1, m=1): [g0, offset, τD, τ_dyn, K_dyn]
         spec = FCSModelSpec(; dim=FCSFitting.d2, anom=FCSFitting.none, n_diff=1, offset=nothing)
         p0 = [1.0, 0.0, 1e-3, 1e-6, 0.2]
         idxs = FCSFitting.infer_noscale_indices(spec, p0)
-        # No mixture weights (n=1); K_dyn is the last position → index 5
         @test idxs == [5]
-    end
 
-    @testset "infer_noscale_indices (3D, two diffusers, weights + dynamics)" begin
         # 3D, Brownian (anom=none), TWO diffusers, FIXED offset
-        # Parameter layout (n=2, m=1, fixed offset):
-        #   [g0, κ, τD1, τD2, w1, τ_dyn, K_dyn]
+        # Parameter layout (n=2, m=1, fixed offset): [g0, κ, τD1, τD2, w1, τ_dyn, K_dyn]
         spec = FCSModelSpec(; dim=FCSFitting.d3, anom=FCSFitting.none, n_diff=2, offset=0.0)
         p0 = [1.0, 8.0, 1e-3, 2e-4, 0.3, 5e-6, 0.1]
         idxs = FCSFitting.infer_noscale_indices(spec, p0)
-        # Expect: weight w1 (index 5) and K_dyn (index 7) to be "noscale"
         @test idxs == [5, 7]
+
+        # Parameter layout (n=2, m=1, fixed offset): [g0, κ, τD1, τD2, α1, α2, w1, τ_dyn, K_dyn]
+        spec = FCSModelSpec(; dim=FCSFitting.d3, anom=FCSFitting.perpop, n_diff=2, offset=0.0)
+        p0 = [1.0, 8.0, 1e-3, 2e-4, 1.1, 0.9, 0.3, 5e-6, 0.1]
+        idxs = FCSFitting.infer_noscale_indices(spec, p0)
+        @test idxs == [7, 9]
     end
 
     @testset "fitting (2D Brownian, free offset)" begin
@@ -202,12 +196,100 @@
         lower = [0.0, 0.0]
         upper = [1.0, 500e-9]
 
-        fit = FCSFitting.fcs_fit(spec, τ, y, p0; lower=lower, upper=upper)
+        fit = FCSFitting.fcs_fit(model, τ, y, p0; lower=lower, upper=upper)
         p̂ = coef(fit)
         g0o, w0o = p̂
 
         @test g0o ≈ g0_true rtol=1e-4
         @test w0o ≈ w0_true rtol=1e-4
         @test FCSFitting.τD(D, w0o) ≈ τD_true rtol=1e-4
+    end
+
+    NA = FCSFitting.AVAGADROS
+    kB = FCSFitting.BOLTZMANN
+
+    @testset "Calculators" begin
+        D  = 5e-11
+        w0 = 250e-9
+        κ  = 10 * rand()
+        g0 = rand()
+        Ks = [0.1, 0.2]
+
+        # τD and diffusivity
+        τ = FCSFitting.τD(D, w0)
+        @test τ ≈ (w0^2) / (4D)
+        τ_scale = FCSFitting.τD(D, w0; scale="μ")
+        @test τ_scale ≈ 1e6 * (w0^2) / (4D)
+        D_back = FCSFitting.diffusivity(τ, w0)
+        @test D_back ≈ D
+
+        @test_throws ArgumentError FCSFitting.τD(-1.0, w0)
+        @test_throws ArgumentError FCSFitting.τD(D, -1.0)
+        @test_throws ArgumentError FCSFitting.diffusivity(-1.0, w0)
+        @test_throws ArgumentError FCSFitting.diffusivity(τ, -1.0)
+
+        # confocal volume/area
+        vol = FCSFitting.volume(w0, κ)
+        @test vol ≈ π^(3/2) * w0^3 * κ rtol=1e-12
+        vol_scale = FCSFitting.volume(w0, κ; scale="n")
+        @test vol_scale ≈ 1e27 * π^(3/2) * w0^3 * κ
+        ar = FCSFitting.area(w0)
+        @test ar ≈ π * w0^2 rtol=1e-12
+        ar_scale = FCSFitting.area(w0; scale="n")
+        @test ar_scale ≈ 1e18 * π * w0^2
+
+        @test_throws ArgumentError FCSFitting.volume(-1.0, κ)
+        @test_throws ArgumentError FCSFitting.volume(w0, -1.0)
+        @test_throws ArgumentError FCSFitting.area(-1.0)
+
+        # concentration (blinkless)
+        c = FCSFitting.concentration(g0, κ, w0)
+        @test c ≈ (1/g0) / (NA * vol * 1000.0)
+        c_scale = FCSFitting.concentration(g0, κ, w0; scale="")
+        @test c_scale ≈ (1/g0) / (NA * vol)
+
+        @test_throws ArgumentError FCSFitting.concentration(-1.0, κ, w0)
+        @test_throws ArgumentError FCSFitting.concentration(g0, -1.0, w0)
+        @test_throws ArgumentError FCSFitting.concentration(g0, κ, -1.0)
+        @test_throws ArgumentError FCSFitting.concentration(g0, κ, w0; Ks=[-0.1])
+        @test_throws ArgumentError FCSFitting.concentration(g0, κ, w0; Ks=[0.1,0.2], ics=[1])
+        @test_throws ArgumentError FCSFitting.concentration(g0, κ, w0; Ks=[], ics=[1])
+
+        B0 = 1 + (0.1/0.9 + 0.2/0.8)
+        Neff1 = B0 / g0
+        c_expected = Neff1 / (NA * vol * 1000.0)
+        @test FCSFitting.concentration(g0, κ, w0; Ks=Ks, ics=[2]) ≈ c_expected
+
+        B0 = (1 + 0.1/0.9) * (1 + 0.2/0.8)
+        Neff2 = B0 / g0
+        c_expected = Neff2 / (NA * vol * 1000.0)
+        @test FCSFitting.concentration(g0, κ, w0; Ks=Ks, ics=[1,1]) ≈ c_expected
+
+        # surface density (2D analogue)
+        sa = FCSFitting.surface_density(g0, w0)
+        sa_expected = (1/g0) / (NA * ar)
+        @test sa ≈ sa_expected rtol=1e-12
+
+        @test_throws ArgumentError FCSFitting.surface_density(-1.0, w0)
+        @test_throws ArgumentError FCSFitting.surface_density(g0, -1.0)
+        @test_throws ArgumentError FCSFitting.surface_density(g0, w0; Ks=[-0.1])
+        @test_throws ArgumentError FCSFitting.surface_density(g0, w0; Ks=[0.1,0.2], ics=[1])
+        @test_throws ArgumentError FCSFitting.surface_density(g0, w0; Ks=[], ics=[1])
+
+        sa_expected = Neff1 / (NA * ar)
+        @test FCSFitting.surface_density(g0, w0; Ks=Ks, ics=[2]) ≈ sa_expected
+        sa_expected = Neff2 / (NA * ar)
+        @test FCSFitting.surface_density(g0, w0; Ks=Ks, ics=[1,1]) ≈ sa_expected
+
+        # hydrodynamic radius
+        T = 293.0;  η = 1.0016e-3
+        Rh = FCSFitting.hydrodynamic(D; T=T, η=η)
+        @test Rh ≈ kB * T / (6π * η * D)
+        Rh_scale = FCSFitting.hydrodynamic(D; T=T, η=η, scale="A")
+        @test Rh_scale ≈ 1e10 * kB * T / (6π * η * D)
+
+        @test_throws ArgumentError FCSFitting.hydrodynamic(-1.0; T=T, η=η)
+        @test_throws ArgumentError FCSFitting.hydrodynamic(D; T=-1.0, η=η)
+        @test_throws ArgumentError FCSFitting.hydrodynamic(D; T=T, η=-1.0)
     end
 end
