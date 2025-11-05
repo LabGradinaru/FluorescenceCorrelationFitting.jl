@@ -3,7 +3,6 @@ const AVAGADROS = 6.022141e23 # Avagadro's number in SI units
 
 const SI_PREFIXES = Dict(
     "" => 1.0,
-    "L" => 1e1,
     "d" => 1e1,
     "c" => 1e2,
     "m" => 1e3,
@@ -326,10 +325,10 @@ Convert diffusion time `τD` and beam waist `w0` to the diffusivity.
 end
 
 """
-    volume(w0, κ; scale="")
+    Veff(w0, κ; scale="")
 Calculate the effective volume from fitted FCS parameters.
 """
-@inline function volume(w0::Real, κ::Real; scale::String="")
+@inline function Veff(w0::Real, κ::Real; scale::String="")
     w0 > 0 || throw(w0_ERROR)
     κ > 0 || throw(κ_ERROR)
 
@@ -339,10 +338,10 @@ Calculate the effective volume from fitted FCS parameters.
 end
 
 """
-    area(w0; scale="")
+    Aeff(w0; scale="")
 Calculate the area formed by the beam waist `w0`.
 """
-@inline function area(w0::Real; scale::String="") 
+@inline function Aeff(w0::Real; scale::String="") 
     w0 > 0 || throw(w0_ERROR)
     
     area = π * w0^2
@@ -394,8 +393,11 @@ Estimate the **molar concentration** (in mol/L) from FCS fit parameters.
         idx += nb
     end
 
-    conc = B0 / (g0 * AVAGADROS * volume(w0, κ))
-    haskey(SI_PREFIXES, scale) && (conc *= SI_PREFIXES[scale]^(-3))
+    # base concentration: mol / L
+    conc = B0 * 1e-3 / (g0 * AVAGADROS * volume(w0, κ))
+    if haskey(SI_PREFIXES, scale) # mol/L → (prefix)·mol/L
+        conc *= SI_PREFIXES[scale]
+    end
     return conc
 end
 

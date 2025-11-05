@@ -108,7 +108,8 @@ using FCSFitting
 # the third coefficient is the beam width
 κ = coef(fit)[2];  w0 = coef(fit)[3]
 diff_time = τD(diffusivity, w0; scale="m") # diffusion time [ms]
-confocal_volume = volume(w0, κ) # confocal volume [m^3]
+confocal_volume = Veff(w0, κ) # confocal volume [m^3]
+conc = concentration(coef(fit)[1], κ, w0; Ks = [coef(fit)[5]], ics = [1]) # effective concentration in mol/L
 rh = hydrodynamic(diffusivity; scale="A") # hydrodynamic radius [Angstroms]
 ```
 
