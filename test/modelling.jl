@@ -1,4 +1,4 @@
-@testset "models" begin
+@testset "modelling" begin
     @testset "Low-level helpers" begin
         # _ndyn_from_len
         @test FCSFitting._ndyn_from_len(0)  == 0

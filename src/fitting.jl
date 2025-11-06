@@ -299,7 +299,7 @@ PosError(x) = ArgumentError(string(x, " must be positive."))
 const w0_SIGN_ERROR = PosError("w0")
 const κ_SIGN_ERROR = PosError("κ")
 const D_SIGN_ERROR = PosError("Diffusivity")
-const nD_ERROR = ArgumentError("The chosen diffuser must be at a positive index less than the total number of diffusers.")
+const nd_ERROR = ArgumentError("The chosen diffuser must be at a positive index less than the total number of diffusers.")
 const w0_REQUIRED_ERROR = ArgumentError("This model does not fix diffusivity, so you must provide `w0=` to compute D.")
 
 
@@ -327,16 +327,12 @@ Get the nd-th diffusion time from a fitted model.
 - Otherwise, the slot is already τD so is scaled by `scale`
 """
 function τD(spec::FCSModelSpec, fit::FCSFitResult; nd::Int = 1, scale::String = "")
-    0 < nd ≤ n_diff(spec) || throw(nD_ERROR)
+    0 < nd ≤ n_diff(spec) || throw(nd_ERROR)
 
     θ = coef(fit)
     idx = 1
-    if !hasoffset(spec)
-        idx += 1
-    end
-    if dim(spec) === d3
-        idx += 1
-    end
+    !hasoffset(spec) && (idx += 1)
+    dim(spec) === d3 && (idx += 1)
 
     diff_slot = idx + nd
     if hasdiffusivity(spec) # slot holds w0
@@ -385,7 +381,7 @@ If your model used fixed diffusivity, use `diffusivity(spec)` instead.
 """
 function diffusivity(spec::FCSModelSpec{D,S,OFF,false}, fit::FCSFitResult;
                      nd::Int=1, w0::Union{Nothing,Real}=nothing, scale::String="") where {D,S,OFF}
-    0 < nd ≤ n_diff(spec) || throw(nD_ERROR)
+    0 < nd ≤ n_diff(spec) || throw(nd_ERROR)
     w0 === nothing && throw(w0_REQUIRED_ERROR)
 
     τd = τD(spec, fit; nd, scale = "")  # get τD in base units
@@ -416,13 +412,11 @@ end
 """
 function Veff(spec::FCSModelSpec{d3,S,OFF,true}, fit::FCSFitResult;
               nd::Int = 1, scale::String = "") where {S,OFF}
-    0 < nd ≤ n_diff(spec) || throw(nD_ERROR)
+    0 < nd ≤ n_diff(spec) || throw(nd_ERROR)
     θ = coef(fit)
 
     idx = 2
-    if !hasoffset(spec)
-        idx += 1
-    end
+    !hasoffset(spec) && (idx += 1)
     κ = θ[idx]
     w0 = θ[idx + nd]
     return Veff(w0, κ; scale)
@@ -434,9 +428,7 @@ function Veff(spec::FCSModelSpec{d3,S,OFF,false}, fit::FCSFitResult;
     θ = coef(fit)
 
     idx = 2
-    if !hasoffset(spec)
-        idx += 1
-    end
+    !hasoffset(spec) && (idx += 1)
     κ = θ[idx]
     return Veff(w0, κ; scale)
 end
@@ -465,9 +457,7 @@ function Aeff(spec::FCSModelSpec{d2,S,OFF,true,NDIFF}, fit::FCSFitResult;
     θ = coef(fit)
 
     idx = 1
-    if !hasoffset(spec)
-        idx += 1
-    end
+    !hasoffset(spec) && (idx += 1)
     w0 = θ[idx + nd]
 
     return Aeff(w0; scale)
@@ -489,8 +479,8 @@ Estimate the **molar concentration** (in mol/L) from FCS fit parameters.
    are grouped into **independent** multiplicative blinking factors. For example,
    `ics = [2, 1]` means the first blinking block has 2 components, the second block has 1.
 """
-function concentration(g0::Real, κ::Real, w0::Real; Ks::AbstractVector = [],
-                       ics::AbstractVector{Int} = [0], scale::String="")
+function concentration(g0::Real, κ::Real, w0::Real; Ks::AbstractVector = Float64[],
+                       ics::AbstractVector{Int} = Int[], scale::String="")
     g0 > 0 || throw(PosError("g0"))
     κ > 0 || throw(κ_SIGN_ERROR)
     w0 > 0 || throw(w0_SIGN_ERROR)
@@ -498,8 +488,8 @@ function concentration(g0::Real, κ::Real, w0::Real; Ks::AbstractVector = [],
 
     # Validate / normalize ics
     isempty(Ks) ?
-        (ics == [0]) || throw(ArgumentError("With Ks=[], use ics=[0]")) :
-        sum(ics) == length(Ks) || throw(ArgumentError("sum(ics) must equal length(Ks)"))
+        (ics == []) || throw(ArgumentError("If there are no dynamic fractions, ics must be empty.")) :
+        sum(ics) == length(Ks) || throw(DYN_COMP_ERROR)
 
     # Blink prefactor at τ→0: B(0) = ∏_blocks (1 + Σ_i n_i),  n_i = K_i/(1-K_i)
     B0 = one(Float64)
@@ -531,20 +521,18 @@ end
 Pull g₀, κ, w₀ (in the fixed-diffusivity case), and Ks from the fit 
 and determine the concentration.
 """
-function concentration(spec::FCSModelSpec{d3,S,OFF,true,Val{N}}, fit::FCSFitResult;
-                       nd::Int = 1, scale::String = "") where {S,OFF,N}
-    0 < nd ≤ n_diff(spec) || throw(nd_ERROR)
+function concentration(spec::FCSModelSpec{d3,S,OFF,true}, fit::FCSFitResult;
+                       nd::Int = 1, scale::String = "") where {S,OFF}
+    N = n_diff(spec)
+    0 < nd ≤ N || throw(nd_ERROR)
     θ = coef(fit)
 
-    g0 = θ[1]
-    idx = 2
-    if !hasoffset(spec)
-        idx += 1
-    end
+    g0 = θ[1];  idx = 2
+    !hasoffset(spec) && (idx += 1)
     κ = θ[idx];  idx += 1
-    w0 = θ[idx + nd - 1]
+    w0 = θ[idx+nd-1]
 
-    # total number of components in θ allocated to τD + weights
+    # total number of components in θ allocated to τD/ w₀ + weights
     diff_comp = 2N - 1
     if S == globe
         diff_comp += 1
@@ -553,13 +541,13 @@ function concentration(spec::FCSModelSpec{d3,S,OFF,true,Val{N}}, fit::FCSFitResu
     end
     idx += diff_comp
 
-    m = _ndyn_from_len(length(θ) - (idx + diff_comp - 1))
+    m = _ndyn_from_len(length(θ) - (idx - 1))
     ics = isempty(spec.ics) ? ones(Int, m) : spec.ics
     sum(ics) == m || throw(DYN_COMP_ERROR)
 
     Kdyn = m == 0 ? Float64[] : collect(@view θ[idx+m:idx+2m-1])
 
-    return concentration(g0, κ, w0; Kdyn, ics, scale)
+    return concentration(g0, κ, w0; Ks=Kdyn, ics, scale)
 end
 
 function concentration(spec::FCSModelSpec{d3,S,OFF,false,Val{N}}, fit::FCSFitResult;
@@ -568,11 +556,8 @@ function concentration(spec::FCSModelSpec{d3,S,OFF,false,Val{N}}, fit::FCSFitRes
     w0 === nothing && throw(w0_REQUIRED_ERROR)
     θ = coef(fit)
 
-    g0 = θ[1]
-    idx = 2
-    if !hasoffset(spec)
-        idx += 1
-    end
+    g0 = θ[1];  idx = 2
+    !hasoffset(spec) && (idx += 1)
     κ = θ[idx];  idx += 1
 
     diff_comp = 2N - 1
@@ -583,13 +568,13 @@ function concentration(spec::FCSModelSpec{d3,S,OFF,false,Val{N}}, fit::FCSFitRes
     end
     idx += diff_comp
 
-    m = _ndyn_from_len(length(θ) - (idx + diff_comp - 1))
+    m = _ndyn_from_len(length(θ) - (idx - 1))
     ics = isempty(spec.ics) ? ones(Int, m) : spec.ics
     sum(ics) == m || throw(DYN_COMP_ERROR)
 
     Kdyn = m == 0 ? Float64[] : collect(@view θ[idx+m:idx+2m-1])
 
-    return concentration(g0, κ, w0; Kdyn, ics, scale)
+    return concentration(g0, κ, w0; Ks=Kdyn, ics, scale)
 end
 
 """
@@ -598,16 +583,16 @@ end
 Estimate the **molar surface density** (in mol/m^2) from FCS fit parameters.
 Analogue to `concentration` when the a 2d fit is performed.
 """
-function surface_density(g0::Real, w0::Real; Ks::AbstractVector = [],
-                         ics::AbstractVector{Int} = [0], scale::String="")
+function surface_density(g0::Real, w0::Real; Ks::AbstractVector = Float64[],
+                         ics::AbstractVector{Int} = Int[], scale::String="")
     g0 > 0 || throw(PosError("g0"))
     w0 > 0 || throw(w0_SIGN_ERROR)
     all(0 .<= Ks .< 1) || throw(ArgumentError("All Ks must lie in [0,1)"))
 
     # Validate / normalize ics
     isempty(Ks) ?
-        (ics == [0]) || throw(ArgumentError("With Ks=[], use ics=[0]")) :
-        sum(ics) == length(Ks) || throw(ArgumentError("sum(ics) must equal length(Ks)"))
+        (ics == []) || throw(ArgumentError("If there are no dynamic fractions, ics must be empty.")) :
+        sum(ics) == length(Ks) || throw(DYN_COMP_ERROR)
 
     # Blink prefactor at τ→0: B(0) = ∏_blocks (1 + Σ_i n_i),  n_i = K_i/(1-K_i)
     B0 = one(Float64)
@@ -645,9 +630,7 @@ function surface_density(spec::FCSModelSpec{d2,S,OFF,true,Val{N}}, fit::FCSFitRe
     θ = coef(fit)
 
     g0 = θ[1];  idx = 2
-    if !hasoffset(spec)
-        idx += 1
-    end
+    !hasoffset(spec) && (idx += 1)
     w0 = θ[idx + nd - 1]
 
     diff_comp = 2N - 1
@@ -656,11 +639,9 @@ function surface_density(spec::FCSModelSpec{d2,S,OFF,true,Val{N}}, fit::FCSFitRe
     elseif S == perpop
         diff_comp += N
     end
+    idx += diff_comp
 
-    dyn_start = idx + diff_comp
-    total_extra = length(θ) - (dyn_start - 1)
-    m = _ndyn_from_len(total_extra)
-
+    m = _ndyn_from_len(length(θ) - (idx - 1))
     ics = isempty(spec.ics) ? ones(Int, m) : spec.ics
     sum(ics) == m || throw(DYN_COMP_ERROR)
 
@@ -683,9 +664,7 @@ function surface_density(spec::FCSModelSpec{d2,S,OFF,false,Val{N}}, fit::FCSFitR
     θ = coef(fit)
 
     g0 = θ[1];  idx = 2
-    if !hasoffset(spec)
-        idx += 1
-    end
+    !hasoffset(spec) && (idx += 1)
 
     diff_comp = 2N - 1
     if S == globe
@@ -693,11 +672,9 @@ function surface_density(spec::FCSModelSpec{d2,S,OFF,false,Val{N}}, fit::FCSFitR
     elseif S == perpop
         diff_comp += N
     end
+    idx += diff_comp
 
-    dyn_start = idx + diff_comp
-    total_extra = length(θ) - (dyn_start - 1)
-    m = _ndyn_from_len(total_extra)
-
+    m = _ndyn_from_len(length(θ) - (idx - 1))
     ics = isempty(spec.ics) ? ones(Int, m) : spec.ics
     sum(ics) == m || throw(DYN_COMP_ERROR)
 
