@@ -52,26 +52,17 @@ pkg> precompile
 
 ## Environments & Jupyter kernel (VS Code/Jupyter)
 
-If you use VS Code or Jupyter, it’s convenient to create a dedicated environment and kernel.
+If you use Jupyter, it’s convenient to create a dedicated kernel for notebooks such as that in `examples/fitting.ipynb` to run in.
+We will assume a global environment named `fcs` has been created, as above.
 
-1. **Create/activate a shared environment**
-
-```julia
-julia> ]
-pkg> activate --shared fcs
-pkg> add CairoMakie LaTeXStrings DelimitedFiles PrettyTables IJulia
-pkg> dev /absolute/path/to/FCSFitting.jl
-pkg> precompile
-```
-
-2. **Install a Jupyter kernel that points at this env**
+1. **Install a Jupyter kernel that points at this env**
 
 ```julia
 julia> using IJulia
 julia> IJulia.installkernel("Julia (@fcs)"; env=Dict("JULIA_PROJECT" => "@fcs"))
 ```
 
-3. **Select the kernel** in VS Code: `Ctrl+Shift+P` → *Notebook: Select Notebook Kernel* → *Select Another Kernel…* → *Jupyter Kernels* → **Julia (@fcs)**.
+2. **Select the kernel** in VS Code: `Ctrl+Shift+P` → *Notebook: Select Notebook Kernel* → *Select Another Kernel…* → *Jupyter Kernels* → **Julia (@fcs)**.
 
 
 ## Quick start

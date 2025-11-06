@@ -1,5 +1,5 @@
 @testset "fitting" begin
-    @testset "FCSFitResult constructor + _to_lfr + StatsAPI shims" begin
+    @testset "FCSFitResult constructor + StatsAPI shims" begin
         exp_model(x, θ) = @. θ[1] * exp(-x/θ[2]) + θ[3]
 
         a_true, b_true, c_true = 1.25, 3.2, 0.08
@@ -43,6 +43,9 @@
         lsf_better = curve_fit(exp_model, x, y, wt, [a_true, b_true, c_true])
         ffr_better = FCSFitResult(lsf_better, spec_free, scales)
         @test StatsAPI.loglikelihood(ffr_better) >= StatsAPI.loglikelihood(ffr)
+        @test StatsAPI.aic(ffr_better) <= StatsAPI.aic(ffr)
+        @test StatsAPI.aicc(ffr_better) <= StatsAPI.aicc(ffr)
+        @test StatsAPI.bic(ffr_better) <= StatsAPI.bic(ffr)
     end
 
     @testset "build_scales_from_p0 + build_scales" begin
@@ -97,7 +100,7 @@
         model = FCSFitting.FCSModel(; spec)
         y = model(τ, [g0_true, offset_true, τD_true])
 
-        # --- Fit without bounds
+        # Fit without bounds
         p0 = [0.5, 0.0, 5e-4]   # rough initial guesses
         fit = FCSFitting.fcs_fit(spec, τ, y, p0)
         p̂ = coef(fit)
@@ -106,7 +109,7 @@
         @test p̂[2] ≈ offset_true rtol=1e-5
         @test p̂[3] ≈ τD_true rtol=1e-5
 
-        # --- Fit with bounds (make g0 lower bound larger than truth)
+        # Fit with bounds (make g0 lower bound larger than truth)
         p02 = [1.5, 0.0, 5e-4]
         lower = [1.0, -1e-1, 0.0]
         upper = [2.0, 1e-1, 1e-2]
@@ -134,8 +137,10 @@
         model = FCSFitting.FCSModel(; spec)
         y = model(τ, [g0_true, κ_true, τD1_true, τD2_true, wt1_true, τdyn_true, Kdyn_true])
 
+        # Fit with only lower bound
         p0 = [0.5, 5, 5e-4, 5e-5, 0.5, 5e-7, 0.25]
-        fit = FCSFitting.fcs_fit(spec, τ, y, p0)
+        lower = zeros(7)
+        fit = FCSFitting.fcs_fit(spec, τ, y, p0; lower)
         p̂ = coef(fit)
 
         @test p̂[1] ≈ g0_true atol=1e-2*g0_true
@@ -149,7 +154,7 @@
 
     @testset "weights vs σ equivalence (heteroscedastic)" begin
         τ = 10 .^ range(-6, -1; length=300)
-        g0_true = 0.9
+        g0_true = rand()
         offset_true = 2e-3
         τD_true = 8e-4
 
@@ -161,15 +166,18 @@
         σ = @. 0.002 + 0.003 * (τ / maximum(τ))
         y = y_true .+ σ .* randn(length(τ))
 
-        p0 = [1.0, 0.0, 1e-3]
+        ch = FCSChannel("G1", τ, y, σ)
+
+        p0 = [0.5, 0.0, 1e-3]
+        upper = [1, 1e-2, 1e-2]
 
         # Using σ (internally converted to 1/σ²)
-        fitA = FCSFitting.fcs_fit(spec, τ, y, p0; σ=σ)
+        fitA = FCSFitting.fcs_fit(spec, ch, p0; upper)
         pA = coef(fitA)
 
         # Using explicit weights
         wt = @. 1 / σ^2
-        fitB = FCSFitting.fcs_fit(spec, τ, y, p0; wt=wt)
+        fitB = FCSFitting.fcs_fit(model, ch, p0; wt=wt, upper)
         pB = pA = coef(fitB)
 
         @test pA ≈ pB rtol=1e-4
@@ -205,10 +213,10 @@
         @test FCSFitting.τD(D, w0o) ≈ τD_true rtol=1e-4
     end
 
+
     NA = FCSFitting.AVAGADROS
     kB = FCSFitting.BOLTZMANN
 
-    # TODO: write tests for new calculations from `spec` and `fit`!
     @testset "Calculators (base)" begin
         D = 5e-11
         w0 = 250e-9
@@ -294,11 +302,13 @@
         @test_throws ArgumentError FCSFitting.hydrodynamic(D; T=T, η=-1.0)
     end
 
+
     @testset "Calculators (from spec+fit)" begin
         D = 1e-10 * rand()
         w0 = 500e-9 * rand()
         κ = 10*rand()
         g0 = rand()
+        
         τ = 10 .^ range(-6, 0; length=300)
 
         # ------------------------------------------------------------
@@ -335,6 +345,30 @@
         @test_throws ArgumentError FCSFitting.concentration(spec3, fit3; nd=0) # fewer diffusers than allowed
 
         # ------------------------------------------------------------
+        # 3D, free diffusivity, one diffuser → params = [g0, κ, τD]
+        # ------------------------------------------------------------
+        spec3_free = FCSFitting.FCSModelSpec(;
+            dim = FCSFitting.d3,
+            anom = FCSFitting.none,
+            offset = 0.0,
+            n_diff = 1,
+        )
+        model3_free = FCSFitting.FCSModel(; spec = spec3_free)
+        y3_free_true = model3_free(τ, [g0, κ, τD_expected])
+
+        p0_3free = [0.5, 5, 0.0003125]
+        lower = [0.0, 1.0, 1e-5]
+        upper = [1.5, 10.0, 1e-3]
+        fit3_free = FCSFitting.fcs_fit(spec3_free, τ, y3_free_true, p0_3free; lower, upper)
+
+        @test_throws ArgumentError FCSFitting.Veff(spec3_free, fit3_free)
+        @test_throws ArgumentError FCSFitting.concentration(spec3_free, fit3_free)
+        @test_throws ArgumentError FCSFitting.concentration(spec3_free, fit3_free; w0=w0, nd=0)
+
+        @test FCSFitting.Veff(spec3_free, fit3_free; w0 = w0) ≈ V_expected rtol=1e-6
+        @test FCSFitting.concentration(spec3_free, fit3_free; w0=w0) ≈ c_expected rtol=1e-6
+
+        # ------------------------------------------------------------
         # 2D, fixed diffusivity, one diffuser → params = [g0, w0]
         # ------------------------------------------------------------
         spec2_fixed = FCSFitting.FCSModelSpec(;
@@ -351,6 +385,8 @@
         fit2_fixed = FCSFitting.fcs_fit(spec2_fixed, τ, y2_fixed_true, p0_2f)
 
         ar = FCSFitting.Aeff(w0)
+        @test FCSFitting.Aeff(spec2_fixed, fit2_fixed) ≈ ar rtol=1e-6
+
         sa_expected = (1/g0) / (NA * ar)
         sa_from_fit = FCSFitting.surface_density(spec2_fixed, fit2_fixed)
         @test sa_from_fit ≈ sa_expected rtol=1e-6

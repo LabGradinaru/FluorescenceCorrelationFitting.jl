@@ -550,9 +550,10 @@ function concentration(spec::FCSModelSpec{d3,S,OFF,true}, fit::FCSFitResult;
     return concentration(g0, κ, w0; Ks=Kdyn, ics, scale)
 end
 
-function concentration(spec::FCSModelSpec{d3,S,OFF,false,Val{N}}, fit::FCSFitResult;
-                       nd::Int = 1, w0::Union{Nothing,Real}=nothing, scale::String = "") where {S,OFF,N}
-    0 < nd ≤ n_diff(spec) || throw(nd_ERROR)
+function concentration(spec::FCSModelSpec{d3,S,OFF,false}, fit::FCSFitResult; nd::Int = 1, 
+                       w0::Union{Nothing,Real}=nothing, scale::String = "") where {S,OFF}
+    N = n_diff(spec)
+    0 < nd ≤ N || throw(nd_ERROR)
     w0 === nothing && throw(w0_REQUIRED_ERROR)
     θ = coef(fit)
 
@@ -624,9 +625,10 @@ Pulls g₀ and w₀ (in the fixed-diffusivity case) from the fitted parameter
 vector, then reconstructs the dynamic fractions from the tail of the vector, and
 finally calls the base `surface_density(g0, w0; Ks, ics, scale)`.
 """
-function surface_density(spec::FCSModelSpec{d2,S,OFF,true,Val{N}}, fit::FCSFitResult;
-                         nd::Int = 1, scale::String = "") where {S,OFF,N}
-    0 < nd ≤ n_diff(spec) || throw(nd_ERROR)
+function surface_density(spec::FCSModelSpec{d2,S,OFF,true}, fit::FCSFitResult;
+                         nd::Int = 1, scale::String = "") where {S,OFF}
+    N = n_diff(spec)
+    0 < nd ≤ N || throw(nd_ERROR)
     θ = coef(fit)
 
     g0 = θ[1];  idx = 2
@@ -656,9 +658,10 @@ end
 2D, **free diffusivity**: the diffusion slots hold τᴅ, not w₀, so the user
 must supply `w0=` to convert to a surface density.
 """
-function surface_density(spec::FCSModelSpec{d2,S,OFF,false,Val{N}}, fit::FCSFitResult;
+function surface_density(spec::FCSModelSpec{d2,S,OFF,false}, fit::FCSFitResult;
                          nd::Int = 1, w0::Union{Nothing,Real} = nothing,
-                         scale::String = "") where {S,OFF,N}
+                         scale::String = "") where {S,OFF}
+    N = n_diff(spec)
     0 < nd ≤ n_diff(spec) || throw(nd_ERROR)
     w0 === nothing && throw(w0_REQUIRED_ERROR)
     θ = coef(fit)
