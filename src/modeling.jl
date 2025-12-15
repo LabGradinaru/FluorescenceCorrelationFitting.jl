@@ -1,10 +1,8 @@
-const DYN_COMP_ERROR = ArgumentError("Mismatch between dynamics expected in the parameter vector and the independent components.")
-
 @enum Dim::UInt8 d2 d3 # Spatial dimension
 @enum Scope::UInt8 none globe perpop # Scope for a variable
 
 """
-    FCSModelSpec{D, S, OFF, DIFF, NDIFF}(offset, diffusivity, ics)
+    FCSModelSpec{D, S, OFF, DIFF, ND}(offset, diffusivity, ics)
     FCSModelSpec(; dim, anom, offset, diffusivity, n_diff, ics)
     FCSModelSpec(nt)
     FCSModelSpec(d)
@@ -14,7 +12,7 @@ The `D` parameter is the spatial dimension, `Dim`, which the diffusion occurs in
 and dictates the diffusion kernel which is used. The `S<:Scope` parameter dictates 
 the presence and scope of the anomalous exponent. `OFF` and `DIFF` determine Boolean 
 types that determine if offset and diffusion, respectively, are allowed to vary during fitting. 
-`NDIFF` a type corresponding to the number of diffusive components.
+`ND` is a type of the form `Val{N}` for an integer `N` corresponding to the number of diffusive components.
 
 # Examples
 ```julia
@@ -67,199 +65,224 @@ FCSModelSpec(nt::NamedTuple) = FCSModelSpec(; nt...)
 FCSModelSpec(d::Dict) = FCSModelSpec(; (Symbol(k)=>v for (k,v) in d)...)
 
 
-"""
-    FCSModel(spec, scales)
 
-Constructs a functor that allows for two-parameter dispatch 
-to comply with standard (independent, dependent) variable form
-for optimization problems.
 """
-Base.@kwdef mutable struct FCSModel <: Function
-    spec::FCSModelSpec
-    scales::Union{Nothing,AbstractVector} = nothing
+    ParamLayout(i_g0, i_off, i_kappa, i_tauD, i_alpha, i_wts, i_taudyn, i_Kdyn)
+    ParamLayout(spec, scales, params)
+
+Container for ranges within which given parameters are stored in a parameter vector.
+"""
+struct ParamLayout
+    i_g0::Int
+    i_off::Int # 0 if fixed
+    i_κ::Int # 0 if 2D
+    i_τD::UnitRange{Int}
+    i_α::UnitRange{Int} # empty if none
+    i_wts::UnitRange{Int} # empty if n==1
+    i_τdyn::UnitRange{Int}
+    i_Kdyn::UnitRange{Int}
 end
-(m::FCSModel)(t, p) = _eval(m.spec, t, p; scales=m.scales)
 
-
-function _eval(spec::FCSModelSpec, t, p::AbstractVector; scales=nothing)
-    L = length(p)
-    isnothing(scales) && (scales = ones(L))
-    L == length(scales) || throw(ArgumentError("Scaling and parameter vectors must be of the same length."))
-    sp = scales .* p # scaled parameter vector
+function ParamLayout(spec::FCSModelSpec, scales::AbstractVector, params::AbstractVector{T}) where {T}
+    L = length(params)
+    length(scales) === L || throw(ArgumentError("Scaling and parameter vectors must be of the same length."))
     
-    # current correlation (at lag time = 0)
-    g0 = sp[1]
+    # current amplitude, offset and structure factor handling
+    i_g0 = 1
 
-    # check if the offset is to be allowed to vary in the model
-    # if it is, set the current parameter vector to be `off`
+    i_off = 0
     idx = 2
-    off = hasoffset(spec) ? spec.offset : (sp[idx]; idx += 1; sp[idx-1])
+    if hasoffset(spec)
+        i_off = idx
+        idx += 1
+    end
 
-    # if the model is in three dimensions, collect the structure factor κ
-    κ = dim(spec) === d3 ? (sp[idx]; idx += 1; sp[idx-1]) : nothing
+    i_kappa = 0
+    if dim(spec) === d3 
+        i_kappa = idx
+        idx += 1
+    end
 
-    # diffusion times
-    # if diffusivity is set to a value, the parameters in these 
-    # slots are assumed to be corresponding to w0
+    # indices corresponding to diffusion times
     n = n_diff(spec)
     τD_end = idx + n - 1
     L ≥ τD_end || throw(ArgumentError("Parameter vector too short for $n diffusion times."))
-    τDslots = @view sp[idx:τD_end]
-    τDvec = hasdiffusivity(spec) ? [τD(spec.diffusivity, w0) for w0 in τDslots] : collect(τDslots) 
+    i_τD = idx:τD_end
     idx += n
 
-    # anomalous exponents
-    α = nothing
+    # indices for anomalous diffusion factors 
+    i_α = 1:0 # empty UnitRange
+    αlen = 0
     α_scope = anom(spec)
     if α_scope == globe
-        α = sp[idx] * ones(n); idx += 1
+        i_α = idx:idx
+        idx += 1
+        αlen = 1
     elseif α_scope == perpop
         α_end = idx + n - 1
         L ≥ α_end || throw(ArgumentError("Parameter vector too short for $n unique anomalous exponents."))
-        α = collect(@view sp[idx:α_end])
+        i_α = idx:α_end
         idx += n
+        αlen = n
     end
 
-    # diffusion population weights
-    #TODO: in the future, weights being bounds by unity should be imposed as a non-linear constraint instead
-    if n == 1
-        wts = Float64[]
-    else
+    # indices for diffusive population weights
+    i_wts = 1:0
+    if n > 1
         w_end = idx + n - 2
         L ≥ w_end || throw(ArgumentError("Parameter vector too short for $(n-1) population weights."))
-        wts = collect(@view sp[idx:w_end])
-        sum(wts) ≤ 1 || throw(ArgumentError("Sum of diffusion population weights must be ≤ 1"))
+        i_wts = idx:w_end
         idx = w_end + 1
     end
-
-    # dynamic contributions to the correlation
-    # TODO: as above. naively, this seems much more challenging however, since it is based on ics within FCSModelSpec
+    
+    # indices for dynamic lifetimes and weights
     m = _ndyn_from_len(L - (idx - 1))
     ics = isempty(spec.ics) ? ones(Int, m) : spec.ics
-    sum(ics) == m || throw(DYN_COMP_ERROR)
-    
-    τdyn = m == 0 ? Float64[] : collect(@view sp[idx:idx+m-1])
-    Kdyn = m == 0 ? Float64[] : collect(@view sp[idx+m:idx+2m-1])
+    sum(ics) == m || throw(ArgumentError("Mismatch between dynamics expected in the parameter vector and the independent components."))
+    i_τdyn = idx:idx+m-1
+    i_Kdyn = idx+m:idx+2m-1
 
-    dyn = m == 0 ? 1.0 : dynamics_factor(t, τdyn, Kdyn, ics)
-    diff = diff_factor(t, κ, τDvec, α, wts)
-
-    return @. off + g0 * diff * dyn
+    return ParamLayout(i_g0, i_off, i_kappa, i_τD, i_α, i_wts, i_τdyn, i_Kdyn)
 end
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Low-level kernel helpers
-# ─────────────────────────────────────────────────────────────────────────────
-
 """
-    dynamics_factor(t, τs, Ks, ics)
+    EvalCache{T}(sp, τD, α, wfull, τdyn, Kdyn)
 
-Compute the contribution of exponential-kernel dynamics to the correlation.
-
-- `τs` and `Ks` have equal length, with all `0 ≤ K < 1`.
-- `ics` lists the component counts per block (sum(ics) == length(τs)).
-- `t` may be a scalar `Number` or an `AbstractVector`.
-
-Returns a scalar if `t` is a scalar, or a vector of the same length as `t` otherwise.
+Container for per-evaluation cache buffers to minimize allocations during fitting.
 """
-function dynamics_factor(t, τs::AbstractVector, Ks::AbstractVector, ics::AbstractVector{<:Integer})
-    length(τs) == length(Ks) || throw(ArgumentError("τs and Ks must have same length."))
-    sum(ics) == length(τs) || throw(ArgumentError("The number of components (sum(ics)) must match length(τs)=length(Ks)."))
-    all(0 .<= Ks .< 1) || throw(ArgumentError("All Ks must lie in [0, 1)."))
-
-    T = promote_type(_eltype(t), _eltype(τs), _eltype(Ks))
-    return _dynamics_factor(t, τs, Ks, ics, T)
+mutable struct EvalCache{T}
+    sp::Vector{T}
+    τD::Vector{T} #note: may be either w0 or tauD depending on if the diffusivity is fixed or not
+    α::Vector{T}
+    wts::Vector{T}
+    τdyn::Vector{T}
+    Kdyn::Vector{T}
 end
 
-function _dynamics_factor(t::Number, τs::AbstractVector, Ks::AbstractVector, 
-                          ics::AbstractVector{<:Integer}, T)
-    isempty(τs) && return one(T)  
-    out = one(T)
-    idx = 1
-    @inbounds for nb in ics
-        s = zero(T)
-        @inbounds for j = 1:nb
-            k = idx + j - 1
-            τ = τs[k]; K = Ks[k]
-            s += T(dyn(t, τ, K))
+
+
+"""
+    FCSModel{T,SpecT,ScaleT}(spec, layout, scales, ics, cache, dynbuf, work)
+    FCSModel(spec, t, p0; scales)
+
+Complete model specification, parameter vector structure and cache required 
+for minimal-allocation evaluation. Can be easily created from an FCSModelSpec.
+Acts as a functor with generic optimization problem inputs (independent, dependent).
+"""
+mutable struct FCSModel{T,SpecT,ScaleT} <: Function
+    spec::SpecT
+    layout::ParamLayout
+    scales::ScaleT
+    ics::Vector{Int}
+
+    # cache and work buffers for use during evaluation
+    cache::EvalCache{T}
+    work::Vector{T}
+    dynbuf::Vector{T}
+end
+
+function FCSModel(spec::FCSModelSpec, t::AbstractVector, p0::AbstractVector; scales=nothing)
+    T = promote_type(eltype(t), eltype(p0), Float64)
+    L = length(p0)
+
+    scalesT = isnothing(scales) ? nothing : T.(scales)
+    layout = ParamLayout(spec, isnothing(scalesT) ? ones(T,L) : scalesT, T.(p0))
+
+    n = n_diff(spec)
+    m = length(layout.i_τdyn)
+
+    cache = EvalCache{T}(
+        zeros(T, L),
+        zeros(T, n),
+        anom(spec) === none ? T[] : zeros(T, n),
+        n <= 1 ? T[] : zeros(T, n-1),
+        zeros(T, m), zeros(T, m)
+    )
+
+    ics = isempty(spec.ics) ? ones(Int, m) : Int.(spec.ics)
+    return FCSModel(spec, layout, scalesT, ics, cache, zeros(T, length(t)))
+end
+
+function (m::FCSModel)(t::AbstractVector, p::AbstractVector)
+    y = similar(t, promote_type(eltype(t), eltype(p), eltype(m.cache.sp)))
+    return eval!(y, m, t, p)
+end
+
+@inline function update!(m::FCSModel{T,SpecT}, p::AbstractVector) where {T,SpecT}
+    sp = m.cache.sp
+    scales = m.scales
+
+    if isnothing(scales)
+        @inbounds @simd for i in eachindex(p)
+            sp[i] = T(p[i])
         end
-        out *= (one(T) + s)
-        idx += nb
-    end
-    return out
-end
-
-function _dynamics_factor(t::AbstractVector, τs::AbstractVector, Ks::AbstractVector, 
-                          ics::AbstractVector{<:Integer}, T)
-    isempty(τs) && return ones(T, length(t))
-
-    out = ones(T, length(t))
-    s = similar(out);  fill!(s, zero(T))  # work buffer
-
-    idx = 1
-    @inbounds for nb in ics
-        fill!(s, zero(T))
-        @inbounds for j = 1:nb
-            k = idx + j - 1
-            τ = τs[k]; K = Ks[k]
-            @simd for n in eachindex(t)
-                s[n] += T(dyn(t[n], τ, K))
-            end
-        end
-        @inbounds for n in eachindex(out)
-            out[n] *= (one(T) + s[n])
-        end
-        idx += nb
-    end
-    return out
-end
-
-"""
-    diff_factor(t, κ, τs, αs, wts)
-
-Compute the contribution of diffusion-kernel dynamics to the correlation.
-"""
-function diff_factor(t, κ::Union{Nothing,Real}, τs::AbstractVector, 
-                     αs::Union{Nothing,AbstractVector}, wts::AbstractVector)
-    n = length(τs)
-    if !isnothing(αs)
-        length(αs) == n || throw(ArgumentError("There must be as many diffusion times as there are anomalous exponents."))
-    end
-    length(wts) + 1 == n || throw(ArgumentError("There must be one less weight than there are diffusion times."))
-
-    if n == 1
-        w_full = ones(1)
     else
-        sum(wts) ≤ 1 || throw(ArgumentError("Sum of diffusion population weights must be ≤ 1"))
-        w_full = (vcat(wts, 1 - sum(wts)))::Vector{Float64}
-    end
-
-    T = promote_type(_eltype(t), _eltype(τs), _eltype(wts))
-    return _diff_factor(t, κ, τs, αs, w_full, T)
-end
-
-function _diff_factor(t::Number, κ::Union{Nothing,Real}, τs::AbstractVector, 
-                      αs::Union{Nothing,AbstractVector}, wts::AbstractVector, T)
-    out = zero(T)
-    @inbounds for i in eachindex(τs)
-        α = isnothing(αs) ? nothing : αs[i]
-        out += T(wts[i] * _diff(t, κ, τs[i], α))
-    end
-    return out
-end
-
-function _diff_factor(t::AbstractVector, κ::Union{Nothing,Real}, τs::AbstractVector, 
-                      αs::Union{Nothing,AbstractVector}, wts::AbstractVector, T)
-    out = zeros(T, length(t))
-    @inbounds for i in eachindex(τs)
-        α = isnothing(αs) ? nothing : αs[i]
-        τ = τs[i]; wt = wts[i]
-        @simd for n in eachindex(t)
-            out[n] += T(wt * _diff(t[n], κ, τ, α))
+        @inbounds @simd for i in eachindex(p)
+            sp[i] = T(p[i]) * scales[i]
         end
     end
-    return out
+
+    # τD: either copy raw τD or compute τD(D, w0)
+    if hasdiffusivity(m.spec)
+        Dfix = m.spec.diffusivity
+        @inbounds for (j, i) in enumerate(m.layout.i_τD)
+            w0 = sp[i]
+            m.cache.τD[j] = τD(Dfix, w0)   # your τD(D,w0)
+        end
+    else
+        @inbounds for (j, i) in enumerate(m.layout.i_τD)
+            m.cache.τD[j] = sp[i]
+        end
+    end
+
+    # α: expand to length n if present
+    if anom(m.spec) === none
+        # leave α empty
+    elseif anom(m.spec) === globe
+        a = sp[first(m.layout.i_α)]
+        fill!(m.cache.α, a)
+    else # perpop
+        @inbounds for (j, i) in enumerate(m.layout.i_α)
+            m.cache.α[j] = sp[i]
+        end
+    end
+
+    # weights (n-1) possibly empty
+    if !isempty(m.layout.i_wts)
+        @inbounds for (j, i) in enumerate(m.layout.i_wts)
+            m.cache.wts[j] = sp[i]
+        end
+    end
+
+    # dynamics possibly empty
+    if !isempty(m.layout.i_τdyn)
+        @inbounds for (j, i) in enumerate(m.layout.i_τdyn)
+            m.cache.τdyn[j] = sp[i]
+        end
+        @inbounds for (j, i) in enumerate(m.layout.i_Kdyn)
+            m.cache.Kdyn[j] = sp[i]
+        end
+    end
+
+    return nothing
+end
+
+function eval!(y::AbstractVector, m::FCSModel, t::AbstractVector, p::AbstractVector)
+    update!(m, p)
+
+    sp = m.cache.sp
+    g0 = sp[m.layout.i_g0]
+    off = m.layout.i_off == 0 ? m.spec.offset : sp[m.layout.i_off]
+    κ = m.layout.i_κ  == 0 ? nothing : sp[m.layout.i_κ]
+
+    diff_factor!(y, t, κ, m.cache.τD, m.cache.α, m.cache.wts)
+    dynamics_factor!(m.dynbuf, m.work, t, m.cache.τdyn, m.cache.Kdyn, m.ics)
+
+    @inbounds @simd for i in eachindex(t)
+        y[i] = off + g0 * y[i] * m.dynbuf[i]
+    end
+    return y
 end
 
 # determine the number of dynamic components based on the parameter vector length
@@ -269,7 +292,74 @@ end
     total_extra ÷ 2
 end
 
-_eltype(x) = x isa AbstractArray ? eltype(x) : typeof(x)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Low-level kernel helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+function diff_factor!(out, t, κ, τs, αs, wts)
+    T = eltype(out)
+    fill!(out, zero(T))
+
+    n = length(τs)
+    wsum = zero(T)
+
+    # quick return if there is only one dynamic component
+    if n == 1
+        τ = τs[1]
+        @inbounds @simd for i in eachindex(t)
+            out[i] = _diff(t[i], κ, τ, isempty(αs) ? nothing : αs[1])
+        end
+        return out
+    end
+
+    @inbounds for j = 1:n-1
+        w = wts[j]
+        wsum += w
+        τ = τs[j]
+        α = isempty(αs) ? nothing : αs[j]
+        @simd for i in eachindex(t)
+            out[i] += w * _diff(t[i], κ, τ, α)
+        end
+    end
+
+    lastw = one(T) - wsum
+    τ = τs[n]
+    α = isempty(αs) ? nothing : αs[n]
+    @inbounds @simd for i in eachindex(t)
+        out[i] += lastw * _diff(t[i], κ, τ, α)
+    end
+    return out
+end
+
+
+function dynamics_factor!(out, work, t, τs, Ks, ics)
+    if isempty(τs)
+        fill!(out, one(eltype(out)))
+        return out
+    end
+
+    fill!(out, one(eltype(out)))
+    idx = 1
+    # loop over each component of ICS (number of dependent dynamics factors)
+    @inbounds for nb in ics
+        fill!(work, zero(eltype(work)))
+        for j ∈ 1:nb
+            k = idx + j - 1
+            τ = τs[k];  K = Ks[k] # fraction and lifetime for dynamic component
+            @simd for n in eachindex(t)
+                work[n] += dyn(t[n], τ, K) # Kᵢ (e^{-t/τᵢ} - 1)
+            end
+        end
+        @simd for n in eachindex(t)
+            out[n] *= (one(eltype(out)) + work[n]) # 1 + ∑ᵢ Kᵢ (e^{-t/τᵢ} - 1)
+        end
+        idx += nb
+    end
+    return out
+end
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -298,4 +388,4 @@ udc_3d(t, τ, κ) = @. inv((1 + t/τ) * sqrt(1 + t/(κ^2 * τ)))
 udc_3d(t, τ, κ, α) = @. inv((1 + (t/τ)^α) * sqrt(1 + (t/τ)^α / κ^2))
 
 "Kernel of a dynamic species of fraction `f` and lifetime `τ`."
-dyn(t, τ, f) = @. f * (exp(-t/τ) - 1)
+dyn(t, τ, f) = f * (exp(-t/τ) - 1)
