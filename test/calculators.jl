@@ -117,8 +117,8 @@
         @test FCSFitting.τD(spec3, fit3) ≈ τD_expected rtol=1e-6
         @test FCSFitting.τD(spec3, fit3; scale="μ") ≈ 1e6 * τD_expected rtol=1e-6
 
-        @test FCSFitting.diffusivity(spec3) ≈ D rtol=1e-12
-        @test FCSFitting.diffusivity(spec3; scale="μ") ≈ 1e12 * D rtol=1e-12
+        @test FCSFitting.diffusivity(spec3, fit3) ≈ D rtol=1e-12
+        @test FCSFitting.diffusivity(spec3, fit3; scale="μ") ≈ 1e12 * D rtol=1e-12
 
         V_expected = FCSFitting.Veff(w0, κ)
         @test FCSFitting.Veff(spec3, fit3) ≈ V_expected rtol=1e-6

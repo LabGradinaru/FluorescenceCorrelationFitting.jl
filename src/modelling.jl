@@ -2,16 +2,16 @@
 @enum Scope::UInt8 none globe perpop # Scope for a variable
 
 """
-    FCSModelSpec{D, S, OFF, DIFF, ND}(offset, diffusivity, ics)
-    FCSModelSpec(; dim, anom, offset, diffusivity, n_diff, ics)
+    FCSModelSpec{D, S, OFF, DIFF, RAD, ND}(offset, diffusivity, ics)
+    FCSModelSpec(; dim, anom, offset, diffusivity, width, n_diff, ics)
     FCSModelSpec(nt)
     FCSModelSpec(d)
 
 Construct an object which specifies the model for fitting `FCSModelSpec`. 
 The `D` parameter is the spatial dimension, `Dim`, which the diffusion occurs in
 and dictates the diffusion kernel which is used. The `S<:Scope` parameter dictates 
-the presence and scope of the anomalous exponent. `OFF` and `DIFF` determine Boolean 
-types that determine if offset and diffusion, respectively, are allowed to vary during fitting. 
+the presence and scope of the anomalous exponent. `OFF`, `DIFF` and `RAD` are Boolean 
+types that determine if offset, diffusion and beam width, respectively, are allowed to vary during fitting. 
 `ND` is a type of the form `Val{N}` for an integer `N` corresponding to the number of diffusive components.
 
 # Examples
@@ -22,18 +22,45 @@ spec = FCSModelSpec(; dim=d3, anom=perpop, n_diff=2, offset=0.0) # α₁,α₂; 
 spec = FCSModelSpec(; dim=d3, diffusivity=5e-11, n_diff=1)  # treat τD slot as w0
 ```
 """
-struct FCSModelSpec{D,S,OFF,DIFF,ND}
+struct FCSModelSpec{D,S,OFF,DIFF,RAD,ND}
     offset::Float64
     diffusivity::Float64
+    beamwidth::Float64
     ics::Vector{Int}
 end
+
+function FCSModelSpec(; dim::Dim=d3, anom::Scope=none,
+                      offset::Union{Nothing,Real}=nothing,
+                      diffusivity::Union{Nothing,Real}=nothing,
+                      width::Union{Nothing,Real}=nothing,
+                      n_diff::Integer=1, ics=nothing)
+    OFF = offset !== nothing
+    DIFF = diffusivity !== nothing
+    RAD = width !== nothing
+    
+    N = Int(n_diff)
+    N ≥ 1 || throw(ArgumentError("n_diff must be ≥ 1"))
+
+    Dval = _dim_from(dim)
+    Sval = _scope_from(anom)
+    FCSModelSpec{Dval,Sval,OFF,DIFF,RAD,Val{N}}(
+        OFF ? float(offset) : 0.0,
+        DIFF ? float(diffusivity) : 0.0,
+        RAD ? float(width) : 0.0,
+        ics === nothing ? Int[] : Int.(ics)
+    )
+end
+
+FCSModelSpec(nt::NamedTuple) = FCSModelSpec(; nt...)
+FCSModelSpec(d::Dict) = FCSModelSpec(; (Symbol(k)=>v for (k,v) in d)...)
 
 # utilities to access the type-encoded flags/values
 dim(::FCSModelSpec{D}) where {D} = D
 anom(::FCSModelSpec{D,S}) where {D,S} = S
 hasoffset(::FCSModelSpec{D,S,OFF}) where {D,S,OFF} = OFF
 hasdiffusivity(::FCSModelSpec{D,S,OFF,DIFF}) where {D,S,OFF,DIFF} = DIFF
-n_diff(::FCSModelSpec{D,S,OFF,DIFF,Val{N}}) where {D,S,OFF,DIFF,N} = N
+haswidth(::FCSModelSpec{D,S,OFF,DIFF,RAD}) where {D,S,OFF,DIFF,RAD} = RAD
+n_diff(::FCSModelSpec{D,S,OFF,DIFF,RAD,Val{N}}) where {D,S,OFF,DIFF,RAD,N} = N
 
 # convenience methods for translating Symbols/ Strings to enums
 _scope_from(x) = x isa Scope ? x :
@@ -42,29 +69,9 @@ _scope_from(x) = x isa Scope ? x :
                  Scope(Symbol(x))
 _dim_from(x) = x isa Dim ? x : Dim(Symbol(x))
 
-function FCSModelSpec(; dim::Dim=d3, anom::Scope=none,
-                      offset::Union{Nothing,Real}=nothing,
-                      diffusivity::Union{Nothing,Real}=nothing,
-                      n_diff::Integer=1, ics=nothing)
-    OFF = offset !== nothing
-    DIFF = diffusivity !== nothing
-    
-    N = Int(n_diff)
-    N ≥ 1 || throw(ArgumentError("n_diff must be ≥ 1"))
-
-    Dval = _dim_from(dim)
-    Sval = _scope_from(anom)
-    FCSModelSpec{Dval,Sval,OFF,DIFF,Val{N}}(
-        offset === nothing ? 0.0 : float(offset),
-        diffusivity === nothing ? 0.0 : float(diffusivity),
-        ics === nothing ? Int[] : Int.(ics)
-    )
-end
-
-FCSModelSpec(nt::NamedTuple) = FCSModelSpec(; nt...)
-FCSModelSpec(d::Dict) = FCSModelSpec(; (Symbol(k)=>v for (k,v) in d)...)
 
 
+const DYN_COMP_ERROR = ArgumentError("Mismatch between dynamics expected in the parameter vector and the independent components.")
 
 """
     ParamLayout(i_g0, i_off, i_kappa, i_tauD, i_alpha, i_wts, i_taudyn, i_Kdyn)
@@ -76,14 +83,12 @@ struct ParamLayout
     i_g0::Int
     i_off::Int # 0 if fixed
     i_κ::Int # 0 if 2D
-    i_τD::UnitRange{Int}
+    i_τD::UnitRange{Int} # empty if both diffusivity and w0 are fixed
     i_α::UnitRange{Int} # empty if none
     i_wts::UnitRange{Int} # empty if n==1
     i_τdyn::UnitRange{Int}
     i_Kdyn::UnitRange{Int}
 end
-
-const DYN_COMP_ERROR = ArgumentError("Mismatch between dynamics expected in the parameter vector and the independent components.")
 
 function ParamLayout(spec::FCSModelSpec, scales::AbstractVector, params::AbstractVector{T}) where {T}
     L = length(params)
@@ -106,14 +111,18 @@ function ParamLayout(spec::FCSModelSpec, scales::AbstractVector, params::Abstrac
     end
 
     # indices corresponding to diffusion times
-    n = n_diff(spec)
-    τD_end = idx + n - 1
-    L ≥ τD_end || throw(ArgumentError("Parameter vector too short for $n diffusion times."))
-    i_τD = idx:τD_end
-    idx += n
+    # if both the diffusivity and width are fixed, diffusion time is completely specified
+    i_τD = 1:0 # empty UnitRange
+    if !hasdiffusivity(spec) || !haswidth(spec)
+        n = n_diff(spec)
+        τD_end = idx + n - 1
+        L ≥ τD_end || throw(ArgumentError("Parameter vector too short for $n diffusion times."))
+        i_τD = idx:τD_end
+        idx += n
+    end
 
     # indices for anomalous diffusion factors 
-    i_α = 1:0 # empty UnitRange
+    i_α = 1:0 
     α_scope = anom(spec)
     if α_scope == globe
         i_α = idx:idx
@@ -222,16 +231,29 @@ end
         end
     end
 
-    # τD: either copy raw τD or compute τD(D, w0)
+    # τD: either copy raw τD or compute τD(D, w0), depending on which parameters are fixed
     if hasdiffusivity(m.spec)
         Dfix = m.spec.diffusivity
-        @inbounds for (j, i) in enumerate(m.layout.i_τD)
-            w0 = sp[i]
-            m.cache.τD[j] = τD(Dfix, w0)   # your τD(D,w0)
+        if haswidth(m.spec)
+            w0fix = m.spec.beamwidth
+            fill!(m.cache.τD, τD(Dfix, w0fix))
+        else
+            @inbounds for (j, i) in enumerate(m.layout.i_τD)
+                w0 = sp[i]
+                m.cache.τD[j] = τD(Dfix, w0)
+            end
         end
     else
-        @inbounds for (j, i) in enumerate(m.layout.i_τD)
-            m.cache.τD[j] = sp[i]
+        if haswidth(m.spec)
+            w0fix = m.spec.beamwidth
+            @inbounds for (j, i) in enumerate(m.layout.i_τD)
+                diff = sp[i]
+                m.cache.τD[j] = τD(diff, w0fix)
+            end
+        else
+            @inbounds for (j, i) in enumerate(m.layout.i_τD)
+                m.cache.τD[j] = sp[i]
+            end
         end
     end
 

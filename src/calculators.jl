@@ -6,11 +6,20 @@ const nd_ERROR = ArgumentError("The chosen diffuser must be at a positive index 
 const w0_REQUIRED_ERROR = ArgumentError("This model does not fix diffusivity, so you must provide `w0=` to compute D.")
 
 
+
 """
     τD(D, w0; scale="")
+    τD(spec, fit; nd=1, scale="")
 
 Convert diffusion coefficient `D` and lateral waist `w0` to the lateral diffusion time τD.
+
+# Keyword arguments
+- `nd::Int`: If given a fit, refers to the diffusive population (if there are many) 
+             which the diffusivity is to be calculated for.
+- `scale::String`: The metric prefix by which to scale metres (e.g., `scale = μ` -> [τD] = μs)
 """
+function τD end
+
 function τD(D::Real, w0::Real; scale::String="")
     w0 > 0 || throw(w0_SIGN_ERROR)
     D > 0 || throw(D_SIGN_ERROR)
@@ -20,82 +29,115 @@ function τD(D::Real, w0::Real; scale::String="")
     return diff_time
 end
 
-"""
-    τD(spec, fit; nd=1, scale="")
-
-Get the nd-th diffusion time from a fitted model.
-
-- If the spec used a **fixed diffusivity**, the corresponding slot in the fit is w₀,
-  so we convert w₀ → τD.
-- Otherwise, the slot is already τD so is scaled by `scale`
-"""
-function τD(spec::FCSModelSpec, fit::FCSFitResult; nd::Int = 1, scale::String = "")
+function τD(spec::FCSModelSpec{D,S,OFF,false,false}, fit::FCSFitResult; 
+            nd::Int = 1, scale::String="") where {D,S,OFF}
     0 < nd ≤ n_diff(spec) || throw(nd_ERROR)
 
-    θ = coef(fit)
     idx = 1
     !hasoffset(spec) && (idx += 1)
     dim(spec) === d3 && (idx += 1)
 
-    diff_slot = idx + nd
-    if hasdiffusivity(spec) # slot holds w0
-        w0 = θ[diff_slot]
-        return τD(spec.diffusivity, w0; scale)
-    else # slot already holds τD
-        diff_time = θ[diff_slot]
-        haskey(SI_PREFIXES, scale) && (diff_time *= SI_PREFIXES[scale])
-        return diff_time
-    end
+    diff_time = coef(fit)[idx + nd]
+    haskey(SI_PREFIXES, scale) && (diff_time *= SI_PREFIXES[scale])
+    return diff_time
 end
+
+function τD(spec::FCSModelSpec{D,S,OFF,true,false}, fit::FCSFitResult; 
+            nd::Int = 1, kwargs...) where {D,S,OFF}
+    0 < nd ≤ n_diff(spec) || throw(nd_ERROR)
+
+    idx = 1
+    !hasoffset(spec) && (idx += 1)
+    dim(spec) === d3 && (idx += 1)
+
+    w0 = coef(fit)[idx + nd]
+    return τD(spec.diffusivity, w0; kwargs...)
+end
+
+function τD(spec::FCSModelSpec{D,S,OFF,false,true}, fit::FCSFitResult; 
+            nd::Int = 1, kwargs...) where {D,S,OFF}
+    0 < nd ≤ n_diff(spec) || throw(nd_ERROR)
+
+    idx = 1
+    !hasoffset(spec) && (idx += 1)
+    dim(spec) === d3 && (idx += 1)
+
+    diff = coef(fit)[idx + nd]
+    return τD(diff, spec.beamwidth; kwargs...)
+end
+
+function τD(spec::FCSModelSpec{D,S,OFF,true,true}, fit::FCSFitResult; 
+            kwargs...) where {D,S,OFF}
+    return τD(spec.diffusivity, spec.beamwidth; kwargs...)
+end
+
 
 """
     diffusivity(τD, w0; scale="")
+    diffusivity(spec, fit; scale="")
+    diffusivity(spec, fit; nd=1, w0_known=nothing, scale="")
+    diffusivity(spec, fit; nd=1, scale="")
 
-Convert diffusion time `τD` and beam waist `w0` to the diffusivity.
+Return the diffusivity of an individual population given (i) τD and w0 or (ii) model specifications and 
+the result of a fit.
+
+# Keyword arguments
+- `nd::Int`: If given a fit, refers to the diffusive population (if there are many) 
+             which the diffusivity is to be calculated for.
+- `scale::String`: The metric prefix by which to scale metres (e.g., `scale = μ` -> [D] = μm²/s)
+
+# Notes
+- For models **without** fixed diffusivity, diffusion slots in the fit are either τD or diffusivity.
+  In the former case, to get D you must also provide w₀ (because τD → D needs w₀).
+  In the latter, the fitted value is simply the diffusivity
 """
-function diffusivity(τD::Real, w0::Real; scale::String="")
-    w0 > 0 || throw(w0_SIGN_ERROR)
-    τD > 0 || throw(PosError("τD"))
+function diffusivity end
 
-    diff = w0^2 / (4τD)
-    # if the user says e.g. "μ", we scale the length unit; D is m^2/s → (prefix m)^2/s
+function diffusivity(diff_time::Real, w0::Real; scale::String="")
+    w0 > 0 || throw(w0_SIGN_ERROR)
+    diff_time > 0 || throw(PosError("τD"))
+
+    diff = w0^2 / (4diff_time)
     haskey(SI_PREFIXES, scale) && (diff *= SI_PREFIXES[scale]^2)
     return diff
 end
 
-"""
-    diffusivity(spec; scale="")
-
-Return the fixed diffusivity from the spec (error if it was not fixed).
-"""
-function diffusivity(spec::FCSModelSpec{D,S,OFF,true}; scale::String = "") where {D,S,OFF}
+function diffusivity(spec::FCSModelSpec{D,S,OFF,true}, fit; scale::String="") where {D,S,OFF}
     diff = spec.diffusivity
     haskey(SI_PREFIXES, scale) && (diff *= SI_PREFIXES[scale]^2)
     return diff
 end
 
-"""
-    diffusivity(spec, fit; nd=1, w0_known=nothing, scale="")
-
-For models **without** fixed diffusivity, diffusion slots in the fit are τD’s.
-To get D you must also provide w₀ (because τD → D needs w₀).
-
-If your model used fixed diffusivity, use `diffusivity(spec)` instead.
-"""
-function diffusivity(spec::FCSModelSpec{D,S,OFF,false}, fit::FCSFitResult;
+function diffusivity(spec::FCSModelSpec{D,S,OFF,false,false}, fit::FCSFitResult;
                      nd::Int=1, w0::Union{Nothing,Real}=nothing, scale::String="") where {D,S,OFF}
     0 < nd ≤ n_diff(spec) || throw(nd_ERROR)
     w0 === nothing && throw(w0_REQUIRED_ERROR)
 
-    τd = τD(spec, fit; nd, scale = "")  # get τD in base units
-    return diffusivity(τd, w0; scale)
+    diff_time = τD(spec, fit; nd, scale)  # get τD in base units
+    return diffusivity(diff_time, w0; scale)
 end
+
+function diffusivity(spec::FCSModelSpec{D,S,OFF,false,true}, fit::FCSFitResult;
+                     nd::Int=1, scale::String="") where {D,S,OFF}
+    0 < nd ≤ n_diff(spec) || throw(nd_ERROR)
+    
+    idx = 1
+    !hasoffset(spec) && (idx += 1)
+    dim(spec) === d3 && (idx += 1)
+    diff = coef(fit)[idx+nd]
+    haskey(SI_PREFIXES, scale) && (diff *= SI_PREFIXES[scale]^2)
+    return diff
+end
+
 
 """
     Veff(w0, κ; scale="")
+    Veff(spec, fit; nd=1, w0=nothing, scale="")
 
 Calculate the effective volume from fitted FCS parameters.
 """
+function Veff end
+
 function Veff(w0::Real, κ::Real; scale::String="")
     w0 > 0 || throw(w0_SIGN_ERROR)
     κ > 0 || throw(κ_SIGN_ERROR)
@@ -105,41 +147,25 @@ function Veff(w0::Real, κ::Real; scale::String="")
     return vol
 end
 
-"""
-    Veff(spec, fit; nd=1, scale="")
-
-3D-only. Pull κ and the nd-th w₀/τD from the fit and compute Veff.
-
-- if diffusivity was fixed → diffusion slot is w₀ → we can compute Veff
-- if diffusivity was free → diffusion slot is τD → user must give w₀
-"""
-function Veff(spec::FCSModelSpec{d3,S,OFF,true}, fit::FCSFitResult;
-              nd::Int = 1, scale::String = "") where {S,OFF}
+function Veff(spec::FCSModelSpec{d3,S,OFF,FD,FW}, fit::FCSFitResult;
+              nd::Int = 1, w0::Union{Nothing,Real}=nothing, scale::String="") where {S,OFF,FD,FW}
     0 < nd ≤ n_diff(spec) || throw(nd_ERROR)
-    θ = coef(fit)
 
+    θ = coef(fit)
     idx = 2
     !hasoffset(spec) && (idx += 1)
     κ = θ[idx]
-    w0 = θ[idx + nd]
-    return Veff(w0, κ; scale)
+
+    w0_eff = FW ? spec.beamwidth : FD ? θ[idx + nd] : (w0 === nothing ? throw(w0_REQUIRED_ERROR) : w0)
+    return Veff(w0_eff, κ; scale)
 end
 
-function Veff(spec::FCSModelSpec{d3,S,OFF,false}, fit::FCSFitResult;
-              w0::Union{Nothing,Real}=nothing, scale::String = "") where {S,OFF}
-    w0 === nothing && throw(w0_REQUIRED_ERROR)
-    θ = coef(fit)
-
-    idx = 2
-    !hasoffset(spec) && (idx += 1)
-    κ = θ[idx]
-    return Veff(w0, κ; scale)
-end
 
 """
     Aeff(w0; scale="")
+    Aeff(spec, fit; nd=1, w0=nothing, scale="")
 
-Calculate the area formed by the beam waist `w0`.
+Calculate the area formed by the beam waist from fitted FCS parameters.
 """
 function Aeff(w0::Real; scale::String="") 
     w0 > 0 || throw(w0_SIGN_ERROR)
@@ -149,25 +175,22 @@ function Aeff(w0::Real; scale::String="")
     return area
 end
 
-"""
-    Aeff(spec, fit; nd=1, scale="")
-
-Extract w₀ from the fit and compute the confocal area.
-"""
-function Aeff(spec::FCSModelSpec{d2,S,OFF,true,NDIFF}, fit::FCSFitResult;
-              nd::Int = 1, scale::String = "") where {S,OFF,NDIFF}
+function Aeff(spec::FCSModelSpec{d2,S,OFF,FD,FW,NDIFF}, fit::FCSFitResult;
+              nd::Int = 1, w0::Union{Nothing,Real}=nothing, scale::String="") where {S,OFF,FD,FW,NDIFF}
     0 < nd ≤ n_diff(spec) || throw(nd_ERROR)
-    θ = coef(fit)
 
     idx = 1
     !hasoffset(spec) && (idx += 1)
-    w0 = θ[idx + nd]
 
-    return Aeff(w0; scale)
+    w0_eff = FW ? spec.beamwidth : FD ? coef(fit)[idx + nd] : (w0 === nothing ? throw(w0_REQUIRED_ERROR) : w0)
+
+    return Aeff(w0_eff; scale)
 end
+
 
 """
     concentration(g0, κ, w0; Ks=[], ics=[0], scale="L")
+    concentration(spec, fit; nd=1, w0=nothing, scale="")
 
 Estimate the **molar concentration** (in mol/L) from FCS fit parameters.
 
@@ -218,25 +241,24 @@ function concentration(g0::Real, κ::Real, w0::Real; Ks::AbstractVector = Float6
     return conc
 end
 
-"""
-    concentration(spec, fit; nd=1, Ks=[], scale="L")
-
-Pull g₀, κ, w₀ (in the fixed-diffusivity case), and Ks from the fit 
-and determine the concentration.
-"""
-function concentration(spec::FCSModelSpec{d3,S,OFF,true}, fit::FCSFitResult;
-                       nd::Int = 1, scale::String = "") where {S,OFF}
+function concentration(spec::FCSModelSpec{d3,S,OFF,FD,FW}, fit::FCSFitResult;
+                       nd::Int = 1, w0::Union{Nothing,Real}=nothing, scale::String="") where {S,OFF,FD,FW}
     N = n_diff(spec)
     0 < nd ≤ N || throw(nd_ERROR)
     θ = coef(fit)
 
-    g0 = θ[1];  idx = 2
+    g0 = θ[1]
+    idx = 2
     !hasoffset(spec) && (idx += 1)
-    κ = θ[idx];  idx += 1
-    w0 = θ[idx+nd-1]
+    κ = θ[idx]; idx += 1
 
-    # total number of components in θ allocated to τD/ w₀ + weights
-    diff_comp = 2N - 1
+    w0_eff = FW ? spec.beamwidth : FD ? θ[idx + nd - 1] : (w0 === nothing ? throw(w0_REQUIRED_ERROR) : w0)
+
+    # diffusion block length:
+    #   primary diffusion params: N unless both D and w0 are fixed
+    #   weights: N-1
+    primary = (FD && FW) ? 0 : N
+    diff_comp = primary + (N - 1)
     if S == globe
         diff_comp += 1
     elseif S == perpop
@@ -248,41 +270,15 @@ function concentration(spec::FCSModelSpec{d3,S,OFF,true}, fit::FCSFitResult;
     ics = isempty(spec.ics) ? ones(Int, m) : spec.ics
     sum(ics) == m || throw(DYN_COMP_ERROR)
 
-    Kdyn = m == 0 ? Float64[] : collect(@view θ[idx+m:idx+2m-1])
+    Kdyn = m == 0 ? Float64[] : collect(@view θ[idx + m : idx + 2m - 1])
 
-    return concentration(g0, κ, w0; Ks=Kdyn, ics, scale)
+    return concentration(g0, κ, w0_eff; Ks=Kdyn, ics, scale)
 end
 
-function concentration(spec::FCSModelSpec{d3,S,OFF,false}, fit::FCSFitResult; nd::Int = 1, 
-                       w0::Union{Nothing,Real}=nothing, scale::String = "") where {S,OFF}
-    N = n_diff(spec)
-    0 < nd ≤ N || throw(nd_ERROR)
-    w0 === nothing && throw(w0_REQUIRED_ERROR)
-    θ = coef(fit)
-
-    g0 = θ[1];  idx = 2
-    !hasoffset(spec) && (idx += 1)
-    κ = θ[idx];  idx += 1
-
-    diff_comp = 2N - 1
-    if S == globe
-        diff_comp += 1
-    elseif S == perpop
-        diff_comp += N
-    end
-    idx += diff_comp
-
-    m = _ndyn_from_len(length(θ) - (idx - 1))
-    ics = isempty(spec.ics) ? ones(Int, m) : spec.ics
-    sum(ics) == m || throw(DYN_COMP_ERROR)
-
-    Kdyn = m == 0 ? Float64[] : collect(@view θ[idx+m:idx+2m-1])
-
-    return concentration(g0, κ, w0; Ks=Kdyn, ics, scale)
-end
 
 """
-    surface_density(w0, g0; Ks=[], ics=[0], scale="")
+    surface_density(g0, w0; Ks=[], ics=Int[], scale="")
+    surface_density(spec, fit; nd=1, w0=nothing, scale="")
 
 Estimate the **molar surface density** (in mol/m^2) from FCS fit parameters.
 Analogue to `concentration` when the a 2d fit is performed.
@@ -319,26 +315,21 @@ function surface_density(g0::Real, w0::Real; Ks::AbstractVector = Float64[],
     return dens
 end
 
-"""
-    surface_density(spec, fit; nd=1, scale="")
-
-2D analogue of `concentration(spec, fit, ...)`.
-
-Pulls g₀ and w₀ (in the fixed-diffusivity case) from the fitted parameter
-vector, then reconstructs the dynamic fractions from the tail of the vector, and
-finally calls the base `surface_density(g0, w0; Ks, ics, scale)`.
-"""
-function surface_density(spec::FCSModelSpec{d2,S,OFF,true}, fit::FCSFitResult;
-                         nd::Int = 1, scale::String = "") where {S,OFF}
+function surface_density(spec::FCSModelSpec{d2,S,OFF,FD,FW}, fit::FCSFitResult;
+                         nd::Int = 1, w0::Union{Nothing,Real}=nothing, scale::String="") where {S,OFF,FD,FW}
     N = n_diff(spec)
     0 < nd ≤ N || throw(nd_ERROR)
     θ = coef(fit)
 
-    g0 = θ[1];  idx = 2
-    !hasoffset(spec) && (idx += 1)
-    w0 = θ[idx + nd - 1]
+    g0 = θ[1]
+    idx = 2
+    !hasoffset(spec) && (idx += 1)     # skip offset if it exists
 
-    diff_comp = 2N - 1
+    # idx now points at the first diffusion-related slot (if any)
+    w0_eff = FW ? spec.beamwidth : FD ? θ[idx + nd - 1] : (w0 === nothing ? throw(w0_REQUIRED_ERROR) : w0)
+
+    primary = (FD && FW) ? 0 : N
+    diff_comp = primary + (N - 1)
     if S == globe
         diff_comp += 1
     elseif S == perpop
@@ -350,48 +341,15 @@ function surface_density(spec::FCSModelSpec{d2,S,OFF,true}, fit::FCSFitResult;
     ics = isempty(spec.ics) ? ones(Int, m) : spec.ics
     sum(ics) == m || throw(DYN_COMP_ERROR)
 
-    Ks = m == 0 ? Float64[] : collect(@view θ[dyn_start + m : dyn_start + 2m - 1])
+    Ks = m == 0 ? Float64[] : collect(@view θ[idx + m : idx + 2m - 1])
 
-    return surface_density(g0, w0; Ks, ics, scale)
+    return surface_density(g0, w0_eff; Ks, ics, scale)
 end
 
-"""
-    surface_density(spec, fit; nd=1, w0=..., scale="")
-
-2D, **free diffusivity**: the diffusion slots hold τᴅ, not w₀, so the user
-must supply `w0=` to convert to a surface density.
-"""
-function surface_density(spec::FCSModelSpec{d2,S,OFF,false}, fit::FCSFitResult;
-                         nd::Int = 1, w0::Union{Nothing,Real} = nothing,
-                         scale::String = "") where {S,OFF}
-    N = n_diff(spec)
-    0 < nd ≤ n_diff(spec) || throw(nd_ERROR)
-    w0 === nothing && throw(w0_REQUIRED_ERROR)
-    θ = coef(fit)
-
-    g0 = θ[1];  idx = 2
-    !hasoffset(spec) && (idx += 1)
-
-    diff_comp = 2N - 1
-    if S == globe
-        diff_comp += 1
-    elseif S == perpop
-        diff_comp += N
-    end
-    idx += diff_comp
-
-    m = _ndyn_from_len(length(θ) - (idx - 1))
-    ics = isempty(spec.ics) ? ones(Int, m) : spec.ics
-    sum(ics) == m || throw(DYN_COMP_ERROR)
-
-    Ks = m == 0 ? Float64[] : collect(@view θ[dyn_start + m : dyn_start + 2m - 1])
-
-    return surface_density(g0, w0; Ks, ics, scale)
-end
 
 """
     hydrodynamic(D; T=293.0, η=1.0016e-3, scale="")
-    hydrodynamic(τD, w0; T=293.0, η=1.0016e-3, scale="")
+    hydrodynamic(diff_time, w0; T=293.0, η=1.0016e-3, scale="")
 
 Calculate the effective hydrodynamic radius of a molecule using the Stokes-Einstein relation.
 
@@ -409,5 +367,5 @@ function hydrodynamic(D::Real; T=293.0, η=1.0016e-3, scale::String="")
     return rh
 end
 
-hydrodynamic(τD::Real, w0::Real; kwargs...) =
-    hydrodynamic(diffusivity(τD, w0); kwargs...)
+hydrodynamic(diff_time::Real, w0::Real; kwargs...) =
+    hydrodynamic(diffusivity(diff_time, w0); kwargs...)

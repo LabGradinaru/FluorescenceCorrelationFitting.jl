@@ -149,7 +149,7 @@ function infer_noscale_indices(spec::FCSModelSpec, p0::AbstractVector)
     # 4) diffusion times (or w0 when diffusivity is fixed)
     n = n_diff(spec)
     τ_end = idx + n - 1
-    τ_end ≤ L || return idxs  # let caller fail later; here we just avoid OOB
+    τ_end ≤ L || return idxs  # quick return and let caller fail later; here we just avoid OOB
     idx = τ_end + 1
 
     # 5) anomalous exponents

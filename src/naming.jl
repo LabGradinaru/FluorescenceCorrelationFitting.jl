@@ -5,6 +5,7 @@ const STRUCT_NAME = "Structure factor"
 const DIFFTIME_NAME = "Residence time"
 const DIFFFRAC_NAME = "Diffusion population fraction"
 const BEAM_NAME = "Beam width"
+const DIFF_NAME = "Diffusivity"
 const DYNTIME_NAME = "Dynamic lifetime"
 const DYNFRAC_NAME = "Dynamic population fraction"
 
@@ -41,7 +42,7 @@ parameter vector length. Names reflect how `_eval` interprets the vector
 - current correlation
 - optional offset,
 - structure factor (3D),
-- diffusion slots (either τD or w0 depending on `diffusivity`),
+- diffusion slots (either τD, w0 or D depending on `diffusivity` and `beamwidth`),
 - anomalous exponents according to `anom`,
 - mixture weights (n_diff-1),
 - dynamics (τ_dyn..., K_dyn...) in that order.
@@ -63,16 +64,23 @@ function _no_dynamics_params(spec::FCSModelSpec)
     !hasoffset(spec) && push!(names, OFF_NAME)
     dim(spec) === d3 && push!(names, STRUCT_NAME)
 
-    # τD slots (or w0 if D fixed)
-    n = n_diff(spec)
-    base_label = DIFFTIME_NAME
-    base_unit = "[s]"
-    if hasdiffusivity(spec)
-        base_label = BEAM_NAME
-        base_unit = "[m]"
-    end
-    @simd for i in 1:n
-        push!(names, n == 1 ? base_label*" "*base_unit : "$(base_label) $i $(base_unit)")
+    # τD slots (or w0/D if D/w0 fixed)
+    hd = hasdiffusivity(spec);  hw = haswidth(spec)
+    if !hd || !hw
+        n = n_diff(spec)
+        base_label = DIFFTIME_NAME
+        base_unit = "[s]"
+        if hasdiffusivity(spec)
+            base_label = BEAM_NAME
+            base_unit = "[m]"
+        end
+        if haswidth(spec)
+            base_label = DIFF_NAME
+            base_unit = "[m²/s]"
+        end
+        @simd for i in 1:n
+            push!(names, n == 1 ? base_label*" "*base_unit : "$(base_label) $i $(base_unit)")
+        end
     end
 
     # anomalous exponents
