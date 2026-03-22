@@ -113,8 +113,8 @@ function ParamLayout(spec::FCSModelSpec, scales::AbstractVector, params::Abstrac
     # indices corresponding to diffusion times
     # if both the diffusivity and width are fixed, diffusion time is completely specified
     i_τD = 1:0 # empty UnitRange
+    n = n_diff(spec)
     if !hasdiffusivity(spec) || !haswidth(spec)
-        n = n_diff(spec)
         τD_end = idx + n - 1
         L ≥ τD_end || throw(ArgumentError("Parameter vector too short for $n diffusion times."))
         i_τD = idx:τD_end
@@ -390,6 +390,65 @@ function dynamics_factor(t, τs, Ks, ics)
     out = similar(t, eltype(t))
     work = similar(t, eltype(t))
     dynamics_factor!(out, work, t, τs, Ks, ics)
+end
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Global (multi-channel) model builder
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""
+    _build_global_model(channel_models, τs, n_shared, local_lengths,
+                        i_shared_in_full, i_local_in_full) -> Function
+
+Build a callable compatible with `LsqFit.curve_fit` for simultaneous fitting
+of multiple FCS channels with shared ("global") parameters.
+
+The combined parameter vector has the layout
+`[shared_params, local_params_ch1, local_params_ch2, ...]`.
+For each channel `k`, the shared params are inserted at the indices
+`i_shared_in_full[k]` and the local params at `i_local_in_full[k]`
+before the channel's own `FCSModel` is evaluated. The returned predictions
+are concatenated in channel order.
+"""
+function _build_global_model(channel_models,
+                              τs::Vector{Vector{Float64}},
+                              n_shared::Int,
+                              local_lengths::Vector{Int},
+                              i_shared_in_full::Vector{Vector{Int}},
+                              i_local_in_full::Vector{Vector{Int}})
+    K = length(channel_models)
+    # Precompute start-of-local-block offset in combined_p for each channel
+    local_offsets = Vector{Int}(undef, K)
+    local_offsets[1] = n_shared
+    for k in 2:K
+        local_offsets[k] = local_offsets[k-1] + local_lengths[k-1]
+    end
+
+    return function (x::AbstractVector, combined_p::AbstractVector)
+        T = eltype(combined_p)
+        shared_p = view(combined_p, 1:n_shared)
+        results  = Vector{Vector{T}}(undef, K)
+
+        for k in 1:K
+            L_local = local_lengths[k]
+            loff = local_offsets[k]
+            local_p = view(combined_p, loff+1:loff+L_local)
+
+            n_full = n_shared + L_local
+            full_p = Vector{T}(undef, n_full)
+            @inbounds for (j, i) in enumerate(i_shared_in_full[k])
+                full_p[i] = shared_p[j]
+            end
+            @inbounds for (j, i) in enumerate(i_local_in_full[k])
+                full_p[i] = local_p[j]
+            end
+
+            results[k] = channel_models[k](τs[k], full_p)
+        end
+
+        return vcat(results...)
+    end
 end
 
 

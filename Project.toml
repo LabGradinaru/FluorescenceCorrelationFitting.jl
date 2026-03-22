@@ -1,6 +1,6 @@
 name = "FCSFitting"
 uuid = "4b8222f9-91d6-4fc3-8988-c3d342909eae"
-version = "0.6.0"
+version = "0.6.1"
 authors = ["Aiyan Brown <aiyan.brown@mail.utoronto.ca>"]
 
 [deps]

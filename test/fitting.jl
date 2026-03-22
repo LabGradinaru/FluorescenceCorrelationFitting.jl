@@ -185,6 +185,144 @@
     end
 
 
+    @testset "global fitting - shared τD (two channels, 2D Brownian)" begin
+        # Two channels observe the same molecule (same τD) but with different
+        # amplitudes, offsets, and noise levels.
+        τ = 10 .^ range(-6, -1; length=300)
+        τD_true = 8e-4
+        g0_1_true, g0_2_true = 0.4, 0.7
+        off_1_true, off_2_true = 1e-3, -5e-4
+
+        spec = FCSFitting.FCSModelSpec(; dim=FCSFitting.d2, anom=FCSFitting.none, n_diff=1)
+        m    = FCSFitting.FCSModel(spec, τ, [0.5, 0.0, 1e-3])
+
+        y1 = m(τ, [g0_1_true, off_1_true, τD_true])
+        y2 = m(τ, [g0_2_true, off_2_true, τD_true])
+
+        specs = [spec, spec]
+        p0s   = [[0.5, 0.0, 5e-4], [0.5, 0.0, 5e-4]]
+
+        gfit = FCSFitting.fcs_fit(specs, [τ, τ], [y1, y2], p0s; shared=:τD)
+
+        @test gfit isa FCSFitting.GlobalFCSFitResult
+        @test FCSFitting.isconverged(gfit)
+
+        # Shared τD should match truth
+        τD_fit = FCSFitting.shared_coef(gfit)[1]
+        @test τD_fit ≈ τD_true rtol=1e-4
+
+        # Per-channel g0 and offset recovered via channel_coef
+        p̂1 = FCSFitting.channel_coef(gfit, 1)
+        p̂2 = FCSFitting.channel_coef(gfit, 2)
+        @test p̂1[1] ≈ g0_1_true  rtol=1e-4
+        @test p̂1[2] ≈ off_1_true atol=1e-6
+        @test p̂1[3] ≈ τD_true    rtol=1e-4
+        @test p̂2[1] ≈ g0_2_true  rtol=1e-4
+        @test p̂2[2] ≈ off_2_true atol=1e-6
+
+        # channel_result returns a proper FCSFitResult
+        r1 = FCSFitting.channel_result(gfit, 1)
+        @test r1 isa FCSFitting.FCSFitResult
+        @test StatsAPI.coef(r1) ≈ p̂1
+        @test length(StatsAPI.residuals(r1)) == length(τ)
+
+        # stderror has the right length on the global result
+        se = StatsAPI.stderror(gfit)
+        @test length(se) == length(gfit.param)
+        @test all(isfinite, se) && all(>(0), se)
+
+        # StatsAPI shims
+        @test StatsAPI.nobs(gfit)  == 2 * length(τ)
+        @test StatsAPI.dof(gfit)   == 2*length(τ) - length(gfit.param)
+        @test StatsAPI.rss(gfit)   ≈ sum(abs2, gfit.resid)
+        @test FCSFitting.isconverged(gfit)
+    end
+
+    @testset "global fitting - shared w₀ (two channels, fixed diffusivity)" begin
+        # Two different molecules measured with the same beam (w₀ is shared)
+        # but having different diffusivities.
+        τ = 10 .^ range(-6, -1; length=300)
+        w0_true = 3e-7
+        D1, D2  = 2e-11, 8e-11
+        g0_1_true, g0_2_true = 0.5, 0.3
+
+        spec1 = FCSFitting.FCSModelSpec(; dim=FCSFitting.d2, anom=FCSFitting.none,
+                                         offset=0.0, diffusivity=D1)
+        spec2 = FCSFitting.FCSModelSpec(; dim=FCSFitting.d2, anom=FCSFitting.none,
+                                         offset=0.0, diffusivity=D2)
+
+        m1 = FCSFitting.FCSModel(spec1, τ, [0.5, w0_true])
+        m2 = FCSFitting.FCSModel(spec2, τ, [0.5, w0_true])
+        y1 = m1(τ, [g0_1_true, w0_true])
+        y2 = m2(τ, [g0_2_true, w0_true])
+
+        specs = [spec1, spec2]
+        p0s = [[0.5, 2e-7], [0.5, 2e-7]]
+
+        gfit = FCSFitting.fcs_fit(specs, [τ, τ], [y1, y2], p0s;
+                                   shared=:w0, lower=[0.0, 0.0, 0.0])
+
+        @test FCSFitting.isconverged(gfit)
+
+        w0_fit = FCSFitting.shared_coef(gfit)[1]
+        @test w0_fit ≈ w0_true rtol=1e-3
+
+        p̂1 = FCSFitting.channel_coef(gfit, 1)
+        p̂2 = FCSFitting.channel_coef(gfit, 2)
+        @test p̂1[1] ≈ g0_1_true rtol=1e-3
+        @test p̂2[1] ≈ g0_2_true rtol=1e-3
+    end
+
+    @testset "global fitting – FCSChannel dispatch" begin
+        τ = 10 .^ range(-6, -1; length=200)
+        τD_true = 5e-4
+
+        spec = FCSFitting.FCSModelSpec(; dim=FCSFitting.d2, anom=FCSFitting.none, n_diff=1)
+        m    = FCSFitting.FCSModel(spec, τ, [0.5, 0.0, 1e-3])
+        y1   = m(τ, [0.6, 2e-3, τD_true])
+        y2   = m(τ, [0.3, 0.0,  τD_true])
+
+        ch1 = FCSChannel("ch1", collect(τ), y1, nothing)
+        ch2 = FCSChannel("ch2", collect(τ), y2, nothing)
+
+        gfit = FCSFitting.fcs_fit([spec, spec], [ch1, ch2],
+                                   [[0.5, 0.0, 3e-4], [0.5, 0.0, 3e-4]]; shared=:τD)
+
+        @test FCSFitting.isconverged(gfit)
+        @test FCSFitting.shared_coef(gfit)[1] ≈ τD_true rtol=1e-3
+    end
+
+    @testset "global fitting – input validation" begin
+        spec = FCSFitting.FCSModelSpec(; dim=FCSFitting.d2, anom=FCSFitting.none)
+        spec_fixedD = FCSFitting.FCSModelSpec(; dim=FCSFitting.d2, anom=FCSFitting.none,
+                                               offset=0.0, diffusivity=1e-11)
+        τ = collect(range(1e-6, 1e-2; length=50))
+        p0 = [0.5, 0.0, 1e-3]
+        p0_fixedD = [0.5, 1e-7]
+
+        # Fewer than two channels
+        @test_throws ArgumentError FCSFitting.fcs_fit([spec], [τ], [zeros(50)], [p0])
+        # Unknown shared symbol
+        @test_throws ArgumentError FCSFitting.fcs_fit([spec, spec], [τ, τ],
+                                                       [zeros(50), zeros(50)], [p0, p0];
+                                                       shared=:unknown)
+        # shared=:w0 but spec has no fixed diffusivity
+        @test_throws ArgumentError FCSFitting.fcs_fit([spec, spec], [τ, τ],
+                                                       [zeros(50), zeros(50)], [p0, p0];
+                                                       shared=:w0)
+        # shared=:D but spec has no fixed width
+        @test_throws ArgumentError FCSFitting.fcs_fit([spec, spec], [τ, τ],
+                                                       [zeros(50), zeros(50)], [p0, p0];
+                                                       shared=:D)
+        # Both diffusivity and width fixed → empty i_τD
+        spec_both = FCSFitting.FCSModelSpec(; dim=FCSFitting.d2, anom=FCSFitting.none,
+                                             offset=0.0, diffusivity=1e-11, width=3e-7)
+        p0_both = [0.5]
+        @test_throws ArgumentError FCSFitting.fcs_fit([spec_both, spec_both], [τ, τ],
+                                                       [zeros(50), zeros(50)],
+                                                       [p0_both, p0_both])
+    end
+
     @testset "fixed diffusivity (w₀ fitted)" begin
         τ = 10 .^ range(-6, -1; length=300)
 
