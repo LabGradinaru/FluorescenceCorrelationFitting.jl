@@ -1,7 +1,7 @@
-module FCSFittingDelimitedFilesExt
+module FluoCorrFittingDelimitedFilesExt
 
 using DelimitedFiles
-import FCSFitting: FCSChannel, FCSData, read_fcs
+import FluoCorrFitting: FCSChannel, FCSData, read_fcs
 
 """
     read_fcs(path; start_idx=nothing, end_idx=nothing, colspec=:auto, metadata=Dict{String,Any}())

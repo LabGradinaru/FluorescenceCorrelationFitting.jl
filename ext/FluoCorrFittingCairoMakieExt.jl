@@ -1,9 +1,9 @@
-module FCSFittingCairoMakieExt
+module FluoCorrFittingCairoMakieExt
 
 using CairoMakie
 using LaTeXStrings
 
-import FCSFitting: FCSModel, FCSFitResult, _fcs_plot, _resid_acf_plot
+import FluoCorrFitting: FCSModel, FCSFitResult, _fcs_plot, _resid_acf_plot
 
 
 const CORR_NAME = L"\mathrm{Correlation}"

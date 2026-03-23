@@ -1,10 +1,10 @@
-module FCSFittingPrettyTablesExt
+module FluoCorrFittingPrettyTablesExt
 
 using PrettyTables
 using LsqFit
 
-import FCSFitting: FCSFitResult, sigstr, fcs_table, infer_parameter_names, 
-                   τD, SI_PREFIXES, aic, aicc, bic
+import FluoCorrFitting: FCSFitResult, sigstr, fcs_table, infer_parameter_names, 
+                        τD, SI_PREFIXES, aic, aicc, bic
 
 
 """
