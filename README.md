@@ -3,11 +3,9 @@
 *Fitting fluorescence correlation spectroscopy (FCS) data in Julia*
 
 [![CI](https://github.com/LabGradinaru/FCSFitting.jl/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/LabGradinaru/FCSFitting.jl/actions/workflows/ci.yml?query=branch%3Amain)
-[![codecov.io](https://codecov.io/github/LabGradinaru/FCSFitting.jl/branch/main/graph/badge.svg?token=ZH9L011XZQ)](http://codecov.io/github/LabGradinaru/FCSFitting.jl/branch/main)
+[![codecov.io](https://codecov.io/github/LabGradinaru/FCSFitting.jl/branch/main/graph/badge.svg)](http://codecov.io/github/LabGradinaru/FCSFitting.jl/branch/main)
 
 **FCSFitting** provides a lightweight, composable toolkit for modelling and fitting FCS correlation curves. Optional package extensions enable file I/O, tables, and publication‑quality plots.
-
-> **Status:** private pre‑release repository; APIs subject to change. Target Julia ≥ **1.10**
 
 
 

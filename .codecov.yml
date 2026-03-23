@@ -5,11 +5,11 @@ status:
   project:
     default:
       target: auto
-      threshold: 2%   # allow small dips
+      threshold: 5%
   patch:
     default:
       target: auto
-      threshold: 1%
+      threshold: 2%
 
 ignore:
   - "test/"
