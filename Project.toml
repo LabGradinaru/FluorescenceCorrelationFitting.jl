@@ -19,6 +19,9 @@ FluorescenceCorrelationFittingDelimitedFilesExt = ["DelimitedFiles"]
 FluorescenceCorrelationFittingPrettyTablesExt = ["PrettyTables"]
 
 [compat]
+julia = "1.10"
+LsqFit = "0.15"
+StatsAPI = "1.3"
 CairoMakie = "0.12, 0.13, 0.14, 0.15"
 DelimitedFiles = "1"
 LaTeXStrings = "1"
