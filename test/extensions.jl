@@ -30,10 +30,6 @@
         s = _errstr(() -> FluorescenceCorrelationFitting.fcs_table(spec_for_plot, nothing, nothing))
         @test s !== nothing
         @test occursin("requires PrettyTables", s)
-
-        s = _errstr(() -> FluorescenceCorrelationFitting.read_fcs("somefile.txt"))
-        @test s !== nothing
-        @test occursin("requires DelimitedFiles", s)
     end
 
     @testset "helpers (core logic)" begin

@@ -17,8 +17,7 @@
 * Parameter scaling and bounds handling for numerically stable fits
 * Global fitting of diffusion coefficients and beam waists between multiple correlation curves
 * Optional extensions for:
-  * Reading delimited text files (`DelimitedFiles.jl`)
-  * Pretty tabular summaries of fits (`PrettyTables.jl`)
+  * Tabular summaries of fits (`PrettyTables.jl`)
   * Interactive/publication plots (`CairoMakie.jl` & `LaTeXStrings.jl`)
 
 
@@ -33,7 +32,7 @@ Until the package is registered, install by adding the package from a local dire
 ```julia
 julia> ]
 pkg> activate --shared fcs
-pkg> add CairoMakie LaTeXStrings DelimitedFiles PrettyTables IJulia
+pkg> add CairoMakie LaTeXStrings PrettyTables IJulia
 pkg> add /absolute/path/to/FluorescenceCorrelationFitting.jl
 pkg> precompile
 ```
@@ -43,7 +42,7 @@ pkg> precompile
 ```julia
 julia> ]
 pkg> activate --shared fcs
-pkg> add CairoMakie LaTeXStrings DelimitedFiles PrettyTables IJulia
+pkg> add CairoMakie LaTeXStrings PrettyTables IJulia
 pkg> add git@github.com:LabGradinaru/FluorescenceCorrelationFitting.jl.git  # or https
 pkg> precompile
 ```
@@ -118,17 +117,6 @@ spec2 = FCSModelSpec(dim=d2, anom=none, offset=0.0, diffusivity=D2)
 gfit = fcs_fit([spec1, spec2], [τ1, τ2], [G1, G2], [p0_1, p0_2]; shared=:w0)
 fit1 = channel_result(gfit, 1)
 println(fit1)
-```
-
-
-### Reading your own data (via DelimitedFiles extension)
-
-If your data live in a delimited file (CSV/TSV), load `DelimitedFiles` **before** `FluorescenceCorrelationFitting` to enable the extension. The files are assumed to be in the order (column-wise): lag times, data, standard deviations (optional), which is then organized into `FCSChannel` objects:
-
-```julia
-using DelimitedFiles, FluorescenceCorrelationFitting
-data = read_fcs(filepath; start_idx = 20, end_idx = 300);
-fit = fcs_fit(spec, data.channel[1].τ, data.channel[1].G, initial_parameters; lower = lower_bounds, upper = upper_bounds)
 ```
 
 
