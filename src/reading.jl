@@ -37,7 +37,7 @@ end
 
 """
     _read_txt(path; start_idx=nothing, end_idx=nothing, start_time=nothing, end_time=nothing,
-              delimeter=" ", linebreak="\r\n", filling_values=0.0, colspec=nothing,
+              delimeter=" ", linebreak="\r\n", filling_values=eps(), colspec=nothing,
               metadata=Dict{String,Any}(), extra_kwargs...)
 
 Read FCS correlation data from a whitespace- or delimiter-separated text file.
@@ -63,7 +63,7 @@ function _read_txt(path::AbstractString;
     end_time=nothing,
     delimeter::String=" ",
     linebreak::String="\r\n",
-    filling_values=0.0,
+    filling_values=eps(),
     colspec=nothing,
     metadata=Dict{String,Any}(),
     extra_kwargs...
@@ -83,15 +83,16 @@ function _read_txt(path::AbstractString;
 
     isempty(rows) && return FCSData(FCSChannel[], metadata, String(path))
 
-    # parse into a Float64 matrix, padding short rows with filling_values
+    # parse into a Float64 matrix, padding short rows and replacing NaNs with filling_values
     parsed = [filter(!isempty, split(strip(r), delimeter)) for r in rows]
-    ncols  = maximum(length, parsed)
+    ncols = maximum(length, parsed)
     M = fill(Float64(filling_values), length(parsed), ncols)
     for (i, parts) in enumerate(parsed)
         for (j, p) in enumerate(parts)
             M[i, j] = parse(Float64, p)
         end
     end
+    replace!(M, NaN => filling_values)
 
     # optional time-domain filtering on the τ column (column 1)
     if !isnothing(start_time) || !isnothing(end_time)
