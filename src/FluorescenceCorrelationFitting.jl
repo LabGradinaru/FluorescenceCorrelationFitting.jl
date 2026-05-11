@@ -44,6 +44,7 @@ export FCSChannel,
 using LsqFit
 using StatsAPI
 
+include("reading.jl")
 include("data_structures.jl")
 include("modelling.jl")
 include("fitting.jl")

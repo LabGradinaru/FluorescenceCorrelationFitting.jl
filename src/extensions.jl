@@ -136,10 +136,5 @@ end
 _resid_acf_plot(args...; kwargs...) =
     error("`resid_acf_plot` requires CairoMakie. Load it: `using CairoMakie`.")
 
-
-
 fcs_table(args...; kwargs...) = 
     error("`fcs_table` requires PrettyTables. Load it: `using PrettyTables`.")
-
-read_fcs(::Any; kwargs...) = 
-    error("`read_fcs` requires DelimitedFiles. Load it first: `using DelimitedFiles`.")

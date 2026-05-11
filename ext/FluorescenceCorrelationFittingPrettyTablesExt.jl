@@ -31,7 +31,13 @@ and a source note with the chosen GoF metric.
 function fcs_table(fit::FCSFitResult; 
                    backend::Symbol=:html, gof_metric::Function=bic,
                    units::Union{Nothing, AbstractVector{String}}=nothing)
-    vals = coef(fit);  errs = stderror(fit)
+    vals = coef(fit)
+    try
+        errs = stderror(fit)
+    catch e
+        println("Unable to calculate standard errors from fit.")
+        errs = zeros(length(coef))
+    end
     
     # Build parameter list (names) in the same order as values
     parameter_list = infer_parameter_names(fit.spec, vals)

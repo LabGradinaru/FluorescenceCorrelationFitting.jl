@@ -1,7 +1,6 @@
 module FluorescenceCorrelationFittingCairoMakieExt
 
-using CairoMakie
-using LaTeXStrings
+using CairoMakie, LaTeXStrings
 
 import FluorescenceCorrelationFitting: FCSModel, FCSFitResult, _fcs_plot, _resid_acf_plot
 
@@ -40,6 +39,7 @@ function _fcs_plot(
     fit_defaults = (linewidth=3, color=colors.fit, alpha=0.9)
     resid_defaults = (markersize=5, color=colors.resid, strokewidth=1, alpha=0.7)
 
+    ax_top.xticks = LogTicks(round(Int, log10(τ[1]), RoundDown):round(Int, log10(τ[end]), RoundUp))
     scatter!(ax_top, τ, data; merge(data_defaults, data_kw)...)
 
     # Generate model curve from fit
