@@ -5,8 +5,22 @@
 [![CI](https://github.com/LabGradinaru/FluorescenceCorrelationFitting.jl/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/LabGradinaru/FluorescenceCorrelationFitting.jl/actions/workflows/ci.yml?query=branch%3Amain)
 [![codecov.io](https://codecov.io/github/LabGradinaru/FluorescenceCorrelationFitting.jl/branch/main/graph/badge.svg)](http://codecov.io/github/LabGradinaru/FluorescenceCorrelationFitting.jl/branch/main)
 
-**FluorescenceCorrelationFitting** provides a lightweight, composable toolkit for modelling and fitting FCS correlation curves. Optional package extensions enable file I/O, tables, and publication‑quality plots.
+**FluorescenceCorrelationFitting** provides a lightweight, composable toolkit for modelling and fitting FCS correlation curves in the 
+&nbsp;
+    <a href="https://julialang.org">
+        <img src="https://raw.githubusercontent.com/JuliaLang/julia-logo-graphics/master/images/julia.ico" width="16em">
+        Julia Language
+    </a>
+&nbsp;
+.
+Optional package extensions enable generation of tables and publication‑quality plots.
 
+To install FluorescenceCorrelationFitting,
+please <a href="https://docs.julialang.org/en/v1/manual/getting-started/">open
+Julia's interactive session (known as REPL)</a> and press <kbd>]</kbd> key in the REPL to use the package mode, then type the following command 
+```julia
+pkg> add FluorescenceCorrelationFitting
+```
 
 
 
@@ -20,51 +34,6 @@
   * Tabular summaries of fits (`PrettyTables.jl`)
   * Interactive/publication plots (`CairoMakie.jl` & `LaTeXStrings.jl`)
 
-
-
-
-## Installation
-
-Until the package is registered, install by adding the package from a local directory or via the Git URL.
-
-### Option A — local path (recommended for development)
-
-```julia
-julia> ]
-pkg> activate --shared fcs
-pkg> add CairoMakie LaTeXStrings PrettyTables IJulia
-pkg> add /absolute/path/to/FluorescenceCorrelationFitting.jl
-pkg> precompile
-```
-
-### Option B — private Git URL
-
-```julia
-julia> ]
-pkg> activate --shared fcs
-pkg> add CairoMakie LaTeXStrings PrettyTables IJulia
-pkg> add git@github.com:LabGradinaru/FluorescenceCorrelationFitting.jl.git  # or https
-pkg> precompile
-```
-
-> **Tip:** use `dev` (instead of `add`) to track local changes during development.
-
-
-
-
-## Environments & Jupyter kernel (VS Code/Jupyter)
-
-If you use Jupyter, it’s convenient to create a dedicated kernel for notebooks such as that in `examples/fitting.ipynb` to run in.
-We will assume a global environment named `fcs` has been created, as above.
-
-1. **Install a Jupyter kernel that points at this env**
-
-```julia
-julia> using IJulia
-julia> IJulia.installkernel("Julia (@fcs)"; env=Dict("JULIA_PROJECT" => "@fcs"))
-```
-
-2. **Select the kernel** in VS Code: `Ctrl+Shift+P` → *Notebook: Select Notebook Kernel* → *Select Another Kernel…* → *Jupyter Kernels* → **Julia (@fcs)**.
 
 
 
