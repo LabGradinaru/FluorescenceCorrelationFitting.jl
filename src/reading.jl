@@ -164,8 +164,8 @@ function _read_pqres(path::AbstractString;
         tagid = rstrip(String(id_bytes), '\0')
         tagidx = ltoh(read(io, Int32))
         tagtype = ltoh(read(io, UInt32))
-        tagval = ltoh(read(io, Int64))  # raw 64-bit slot; meaning depends on type
-
+        tagval = ltoh(read(io, Int64))
+        
         evalue = if tagtype == TagEmpty8
             nothing
         elseif tagtype == TagBool8
