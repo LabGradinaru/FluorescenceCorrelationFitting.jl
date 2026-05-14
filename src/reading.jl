@@ -24,7 +24,6 @@ Specific methods for handling each filetype are named `_read_ext`, where `ext` i
 """
 function read_fcs(path::AbstractString; kwargs...)
     ext = splitext(path)[2]
-
     if ext == ".txt"
         return _read_txt(path; kwargs...)
     elseif ext == ".pqres"
@@ -241,7 +240,7 @@ function _pqres_channels(tags::Dict{String,Any})::Vector{FCSChannel}
             isempty(suffix) && continue
             suffix[end] == 'Y' || continue # X-axis weights are not meaningful
             idx_str = suffix[1:end-1]
-            cidx = something(tryparse(Int, idx_str), continue)
+            cidx = tryparse(Int, idx_str)
             w_by_ch[cidx] = v
         end
     end
