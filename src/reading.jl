@@ -24,7 +24,6 @@ Specific methods for handling each filetype are named `_read_ext`, where `ext` i
 """
 function read_fcs(path::AbstractString; kwargs...)
     ext = splitext(path)[2]
-
     if ext == ".txt"
         return _read_txt(path; kwargs...)
     elseif ext == ".pqres"
@@ -37,7 +36,7 @@ end
 
 """
     _read_txt(path; start_idx=nothing, end_idx=nothing, start_time=nothing, end_time=nothing,
-              delimeter=" ", linebreak="\r\n", filling_values=0.0, colspec=nothing,
+              delimeter=" ", linebreak="\n", filling_values=eps(), colspec=nothing,
               metadata=Dict{String,Any}(), extra_kwargs...)
 
 Read FCS correlation data from a whitespace- or delimiter-separated text file.
@@ -62,8 +61,8 @@ function _read_txt(path::AbstractString;
     start_time=nothing,
     end_time=nothing,
     delimeter::String=" ",
-    linebreak::String="\r\n",
-    filling_values=0.0,
+    linebreak::String="\n",
+    filling_values=eps(),
     colspec=nothing,
     metadata=Dict{String,Any}(),
     extra_kwargs...
@@ -72,6 +71,7 @@ function _read_txt(path::AbstractString;
     content = read(io, String)
     close(io)
 
+    content = replace(content, "\r\n" => "\n")
     raw = split(strip(content), linebreak)
 
     # drop blank lines and comment lines
@@ -83,15 +83,16 @@ function _read_txt(path::AbstractString;
 
     isempty(rows) && return FCSData(FCSChannel[], metadata, String(path))
 
-    # parse into a Float64 matrix, padding short rows with filling_values
+    # parse into a Float64 matrix, padding short rows and replacing NaNs with filling_values
     parsed = [filter(!isempty, split(strip(r), delimeter)) for r in rows]
-    ncols  = maximum(length, parsed)
+    ncols = maximum(length, parsed)
     M = fill(Float64(filling_values), length(parsed), ncols)
     for (i, parts) in enumerate(parsed)
         for (j, p) in enumerate(parts)
             M[i, j] = parse(Float64, p)
         end
     end
+    replace!(M, NaN => filling_values)
 
     # optional time-domain filtering on the τ column (column 1)
     if !isnothing(start_time) || !isnothing(end_time)
@@ -240,7 +241,7 @@ function _pqres_channels(tags::Dict{String,Any})::Vector{FCSChannel}
             isempty(suffix) && continue
             suffix[end] == 'Y' || continue # X-axis weights are not meaningful
             idx_str = suffix[1:end-1]
-            cidx = something(tryparse(Int, idx_str), continue)
+            cidx = tryparse(Int, idx_str)
             w_by_ch[cidx] = v
         end
     end

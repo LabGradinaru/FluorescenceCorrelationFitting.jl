@@ -13,11 +13,21 @@ A single correlation **channel** for FCS data.
 All vectors are assumed to be aligned element-wise (`τ[i]` ↔ `G[i]` ↔ `σ[i]`).
 """
 struct FCSChannel{T,S}
-    name::String           # e.g. "G_DD" or "G_DA"
-    τ::Vector{T}           # lag times (s)
-    G::Vector{T}           # correlation values
+    name::String
+    τ::Vector{T}
+    G::Vector{T}
     σ::S
+
+    function FCSChannel(name::String,τ::Vector{T},G::Vector{T},σ::S) where {T,S}
+        @assert length(τ) == length(G) "Number of lag times must equal correlation vector length."
+        if σ isa AbstractVector
+            @assert length(τ) == length(σ) "Number of standard deviations must equal correlation vector length."
+        end
+        new{T,S}(name,τ,G,σ)
+    end
 end
+
+Base.length(ch::FCSChannel) = length(ch.τ)
 
 
 """
@@ -32,6 +42,8 @@ A container for **multi-channel** FCS data plus provenance.
 """
 struct FCSData
     channels::Vector{FCSChannel}
-    metadata::Dict{String,Any}   # sample, T, NA, λ, pinhole, detector, etc.
-    source::String               # filepath or “in-memory”
+    metadata::Dict{String,Any}
+    source::String
 end
+
+Base.length(data::FCSData) = length(data.channels)

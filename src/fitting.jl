@@ -218,6 +218,8 @@ fit = fcs_fit(spec, t, g, initial_parameters)
                     If `nothing`, inferred from `p0` so that `θ0 = p0 / scales ≈ ones`,
                     while *not* scaling mixture weights
 - `zero_sub=1.0`: Scale used in the scaling vector when `p0` contains a zero
+- `wt_threshold=1e10`: Maximum value a data point can be weighed at. 
+                       This is set to avoid data with very few or no points having weights which are unreasonably large.
 - `lower=nothing`: Lower bound for each element of the parameter vector. If nothing, 
                    all values are unbounded from below
 - `upper=nothing`: Upper bound for each element of the parameter vector. If nothing, 
@@ -228,7 +230,7 @@ function fcs_fit end
 
 function fcs_fit(spec::FCSModelSpec, τ::AbstractVector, data::AbstractVector, p0::AbstractVector;
                  σ::Union{Nothing,AbstractArray}=nothing, wt::Union{Nothing,AbstractArray}=nothing,
-                 scales::Union{Nothing,AbstractVector}=nothing, zero_sub::Real=1.0,
+                 scales::Union{Nothing,AbstractVector}=nothing, zero_sub::Real=1.0, wt_threshold::Real=1e10,
                  lower=nothing, upper=nothing, kwargs...)
 
     N = length(τ)
@@ -238,6 +240,7 @@ function fcs_fit(spec::FCSModelSpec, τ::AbstractVector, data::AbstractVector, p
 
     # prefer explicit weights; else inverse-variance from σ; else ones
     weights = wt === nothing ? (σ === nothing ? ones(N) : @. 1 / σ^2) : wt
+    weights[weights .> wt_threshold] .= wt_threshold
 
     # build scales (protect weights & K_dyn)
     noscale_idx = infer_noscale_indices(spec, p0)
