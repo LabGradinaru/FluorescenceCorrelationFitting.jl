@@ -36,7 +36,7 @@ end
 
 """
     _read_txt(path; start_idx=nothing, end_idx=nothing, start_time=nothing, end_time=nothing,
-              delimeter=" ", linebreak="\r\n", filling_values=eps(), colspec=nothing,
+              delimeter=" ", linebreak="\n", filling_values=eps(), colspec=nothing,
               metadata=Dict{String,Any}(), extra_kwargs...)
 
 Read FCS correlation data from a whitespace- or delimiter-separated text file.
@@ -61,7 +61,7 @@ function _read_txt(path::AbstractString;
     start_time=nothing,
     end_time=nothing,
     delimeter::String=" ",
-    linebreak::String="\r\n",
+    linebreak::String="\n",
     filling_values=eps(),
     colspec=nothing,
     metadata=Dict{String,Any}(),
@@ -71,6 +71,7 @@ function _read_txt(path::AbstractString;
     content = read(io, String)
     close(io)
 
+    content = replace(content, "\r\n" => "\n")
     raw = split(strip(content), linebreak)
 
     # drop blank lines and comment lines
